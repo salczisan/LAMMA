@@ -1,0 +1,132 @@
+local ok_bus, xbus = pcall(require, "xbus")
+
+if not ok_bus then
+    printf("[ALIFEPLUS_ADAPTER] xbus not found")
+    return
+end
+
+
+local M = {}
+
+-- ==================================================
+-- CONFIG
+-- ==================================================
+
+local CONFIG = {
+    debug = false,
+    reaction_cooldown = 1500
+}
+
+
+-- ==================================================
+-- INTERNAL STATE
+-- ==================================================
+
+local last_reaction = {}
+
+
+-- ==================================================
+-- UTIL
+-- ==================================================
+
+local function log(msg)
+
+    if CONFIG.debug then
+        printf("[ALIFEPLUS_ADAPTER] %s", msg)
+    end
+
+end
+
+
+local function now()
+    return time_global()
+end
+
+
+local function cooldown(key)
+
+    local t = last_reaction[key]
+    local n = now()
+
+    if t and n - t < CONFIG.reaction_cooldown then
+        return true
+    end
+
+    last_reaction[key] = n
+    return false
+
+end
+
+
+-- ==================================================
+-- ALIFEPLUS BRIDGE
+-- ==================================================
+
+local function react_task_assigned(data)
+
+    if not data then
+        return
+    end
+
+    local squad = data.squad
+    local task = data.task
+
+    if not squad then
+        return
+    end
+
+    local key = "task_" .. tostring(squad)
+
+    if cooldown(key) then
+        return
+    end
+
+
+    -- przykładowa reakcja świata
+    log("task detected: ".. tostring(task))
+
+    -- tu później wpinamy mechaniki AlifePlus
+end
+
+
+local function react_enemy_spotted(data)
+
+    if not data then
+        return
+    end
+
+    local squad = data.squad
+    local enemy = data.enemy
+
+    if not squad then
+        return
+    end
+
+    local key = "combat_" .. tostring(squad)
+
+    if cooldown(key) then
+        return
+    end
+
+    log("combat trigger for squad ".. tostring(squad))
+
+    -- w tym miejscu później wchodzi Epic Fight
+end
+
+
+-- ==================================================
+-- EVENT REGISTRATION
+-- ==================================================
+
+function M.init()
+
+    xbus.subscribe("siski.task_assigned", react_task_assigned)
+
+    xbus.subscribe("siski.enemy_spotted", react_enemy_spotted)
+
+    log("adapter initialized")
+
+end
+
+
+return M

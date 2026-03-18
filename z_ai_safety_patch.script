@@ -1,0 +1,36 @@
+-- global safety wrapper for xr_logic.issue_event
+
+if xr_logic and xr_logic.issue_event then
+
+    local original_issue_event = xr_logic.issue_event
+
+    function xr_logic.issue_event(obj, event, ...)
+        
+        -- sanity check
+        if not obj then
+            return
+        end
+
+        if type(obj.id) ~= "function" then
+            return
+        end
+
+        local ok, id = pcall(obj.id, obj)
+
+        if not ok or not id then
+            return
+        end
+
+        -- ensure client object exists
+        if not level or not level.object_by_id then
+            return
+        end
+
+        if not level.object_by_id(id) then
+            return
+        end
+
+        return original_issue_event(obj, event, ...)
+    end
+
+end

@@ -1,0 +1,32 @@
+-- global guard for broken smart terrain jobs
+
+if xr_logic and xr_logic.activate_by_section then
+
+    local original_activate = xr_logic.activate_by_section
+
+    function xr_logic.activate_by_section(obj, section, ...)
+
+        if not obj then
+            return
+        end
+
+        if type(obj.id) ~= "function" then
+            return
+        end
+
+        local ok, id = pcall(obj.id, obj)
+
+        if not ok or not id then
+            return
+        end
+
+        -- ensure client object exists
+        if not level.object_by_id(id) then
+            return
+        end
+
+        return original_activate(obj, section, ...)
+
+    end
+
+end

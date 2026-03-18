@@ -1,0 +1,88 @@
+local M = {}
+
+local ok, xbus = pcall(require, "xbus")
+if not ok then
+    printf("[RUMOURS] xbus not found")
+    return M
+end
+
+local rumours = {}
+local max_rumours = 128
+local ttl = 1800
+
+local function now()
+    return time_global()
+end
+
+local function cleanup()
+
+    local t = now()
+
+    for id,r in pairs(rumours) do
+        if t - r.time > ttl then
+            rumours[id] = nil
+        end
+    end
+
+end
+
+
+local function add_rumour(data)
+
+    local id = tostring(now()) .. "_" .. tostring(math.random(1000))
+
+    rumours[id] = {
+        type = data.type,
+        squad = data.squad,
+        enemy = data.enemy,
+        target = data.target,
+        time = now()
+    }
+
+end
+
+
+local function on_enemy_spotted(data)
+
+    add_rumour({
+        type = "enemy",
+        squad = data.squad,
+        enemy = data.enemy
+    })
+
+end
+
+
+local function on_task_assigned(data)
+
+    add_rumour({
+        type = "task",
+        squad = data.squad,
+        target = data.target
+    })
+
+end
+
+
+function M.get_rumours()
+
+    cleanup()
+    return rumours
+
+end
+
+
+local function init()
+
+    xbus.subscribe("siski.enemy_spotted", on_enemy_spotted)
+    xbus.subscribe("siski.task_assigned", on_task_assigned)
+
+    printf("[RUMOURS] system initialized")
+
+end
+
+
+-- AUTO INIT
+init()
+
+return M

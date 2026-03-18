@@ -1,0 +1,5 @@
+xbus.subscribe("*", function(event, data)
+
+    printf("[ALIFE BUS] %s", event)
+
+end)
