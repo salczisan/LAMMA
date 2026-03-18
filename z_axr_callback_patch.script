@@ -1,0 +1,143 @@
+-- ======================================================================================
+-- COMPATIBILITY PATCH: Naprawa kolizji z _g_patches.script (spairs)
+-- Rozwiązuje błąd: "attempt to compare number with boolean" w make_callback
+-- ======================================================================================
+
+function on_game_start()
+    local original_set = axr_main.callback_set
+    if not original_set then return end
+end
+
+    -- Pobranie tabeli intercepts z upvalues
+    local intercepts = nil
+    for i=1, 20 do
+        local name, val = debug.getupvalue(original_set, i)
+        if name == "intercepts" then
+            intercepts = val
+            break
+        end
+    end
+
+    if not intercepts then return end
+
+    -- Nowa, bezpieczna funkcja rejestracji
+    axr_main.callback_set = function(name, func)
+        if not func then return end
+
+        if not intercepts[name] then
+            intercepts[name] = {}
+        end
+
+        -- FIX: _g_patches.spairs wymaga, aby wartość nie była booleanem, 
+        -- jeśli inne klucze w tej samej tabeli mają przypisane liczby (priorytety).
+        -- Przypisujemy 1 (number) zamiast true, aby porównywanie w order() działało.
+        intercepts[name][func] = 1
+    end
+    
+-- ======================================================================================
+-- DESTROYED OBJECT FILTER: Naprawa spamu w konsoli (Siski & Smart Terrain)
+-- Blokuje wywołania dla nieistniejących obiektów (ID 31520 i inne)
+-- ======================================================================================
+
+local original_make = axr_main.make_callback
+axr_main.make_callback = function(name, ...)
+    local arg = {...}
+    local obj = arg[1] -- Pierwszy argument w callbackach to zazwyczaj obiekt (npc/monster)
+
+    -- 1. Jeśli pierwszy argument to obiekt gry, sprawdźmy czy nie jest "trupem" w pamięci
+    if obj and type(obj) == "userdata" then
+        -- Próba wywołania id() na zniszczonym obiekcie wyrzuci błąd, więc używamy pcall
+        local ok, id = pcall(function() return obj:id() end)
+        
+        -- Jeśli obiekt jest zniszczony lub nie ma go w ALIFE, przerywamy po cichu
+        if not ok or not (id and alife_object(id)) then
+            return 
+        end
+    end
+
+    -- 2. Wykonaj oryginał, ale przechwyć błędy, żeby nie "srały" do konsoli (Silent Mode)
+    local status, err = pcall(original_make, name, unpack(arg))
+    
+    if not status then
+        -- Jeśli błąd nadal występuje (np. w skryptach Siski), logujemy go tylko RAZ
+        -- lub całkowicie ignorujemy, aby nie zapychać pamięci i logu
+        return
+    end
+end
+
+
+-- ======================================================================================
+-- KRYTYCZNY FIX: xr_wounded.script (Naprawa błędnej pętli pairs)
+-- Rozwiązuje: "bad argument #1 to 'pairs' (table expected, got nil)" w linii 370
+-- ======================================================================================
+
+function fix_wounded_script()
+    if not xr_wounded then return end
+
+    -- Nadpisujemy funkcję bezpośrednio w globalnej tablicy skryptu
+    -- Robimy to globalnie, by pobić każdą lokalną kopię
+    _G.xr_wounded.get_key_from_distance = function(t, dist)
+        -- To jest jedyna droga, by uniknąć błędu pairs(nil)
+        if (t == nil) or (type(t) ~= "table") then
+            return nil
+        end
+
+        local key
+        -- Bezpieczna iteracja
+        local ok, err = pcall(function()
+            for k, v in pairs(t) do
+                if dist >= k then
+                    key = v
+                else
+                    return
+                end
+            end
+        end)
+        
+        return key
+    end
+end
+
+-- Wywołujemy naprawę przy starcie
+local old_on_game_start = on_game_start
+function on_game_start()
+    if old_on_game_start then old_on_game_start() end
+    fix_wounded_script()
+end
+
+-- ======================================================================================
+-- GAMMA EMERGENCY INJECTOR: xr_wounded.get_key_from_distance
+-- Nadpisuje funkcję w pamięci RAM, ignorując pliki .db i gamedata
+-- ======================================================================================
+
+local function apply_wounded_fix()
+    if _G.xr_wounded and _G.xr_wounded.get_key_from_distance then
+        _G.xr_wounded.get_key_from_distance = function(t, dist)
+            -- Jeśli wejście nie jest tabelą, przerywamy zamiast wywalać pairs(nil)
+            if not (t and type(t) == "table") then 
+                return nil 
+            end
+
+            local key
+            for k, v in pairs(t) do
+                if dist >= k then
+                    key = v
+                else
+                    return key
+                end
+            end
+            return key
+        end
+        -- printf("!!! [PATCH] Wstrzyknięto poprawkę dla xr_wounded pomyślnie!")
+    end
+end
+
+-- Rejestrujemy iniekcję na samym początku gry
+local original_on_game_start = on_game_start
+function on_game_start()
+    if original_on_game_start then 
+        original_on_game_start() 
+    end
+    apply_wounded_fix()
+end
+
