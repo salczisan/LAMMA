@@ -1,0 +1,171 @@
+-- ==========================================
+-- SISKI COMBAT PRIORITY PATCH
+-- Military layer overrides ALIFE only in combat
+-- ==========================================
+
+if not rawget(_G, "siski_combat_priority_patch") then
+    siski_combat_priority_patch = true
+
+    local MELEE_DISTANCE = 2.5
+    local COVER_RADIUS = 20
+    local COMBAT_LOCK_TIME = 6000
+
+    local combat_memory = {}
+    local override_active = {}
+
+    --------------------------------------------------
+    -- TIME
+    --------------------------------------------------
+
+    local function now()
+        return device():time_global()
+    end
+
+    --------------------------------------------------
+    -- BASIC HELPERS
+    --------------------------------------------------
+
+    local function distance(a,b)
+        return a:position():distance_to(b:position())
+    end
+
+    local function has_los(a,b)
+        return a and b and b:alive() and a:visibility(b) > 0.6
+    end
+
+    local function under_fire(obj)
+        local d = obj:danger()
+        return d and d.current_state == "danger"
+    end
+
+    --------------------------------------------------
+    -- COMBAT DETECTION
+    --------------------------------------------------
+
+    local function detect_enemy(obj)
+
+        local enemy = obj:best_enemy()
+        if not enemy then return nil end
+
+        if has_los(obj, enemy)
+        or has_los(enemy, obj)
+        or under_fire(obj) then
+
+            combat_memory[obj:id()] = now()
+            return enemy
+        end
+
+        return nil
+    end
+
+    local function in_combat(obj)
+
+        local t = combat_memory[obj:id()]
+        if not t then return false end
+
+        return now() - t < COMBAT_LOCK_TIME
+    end
+
+    --------------------------------------------------
+    -- SAFE COVER (away from enemy)
+    --------------------------------------------------
+
+    local function seek_cover(obj, enemy)
+
+        if not under_fire(obj) then return end
+        if not enemy then return end
+
+        local cover = obj:best_cover()
+        if not cover then return end
+
+        if distance(obj, cover) <= COVER_RADIUS
+        and distance(cover, enemy) > distance(obj, enemy) then
+
+            state_mgr.set_state(obj, "cover")
+        end
+    end
+
+    --------------------------------------------------
+    -- FIRE DISCIPLINE
+    --------------------------------------------------
+
+    local function fire_control(obj, enemy)
+
+        if has_los(obj, enemy) then
+            obj:set_desired_direction(obj:direction())
+            obj:enable_shooting()
+            return true
+        end
+
+        return false
+    end
+
+    --------------------------------------------------
+    -- MELEE
+    --------------------------------------------------
+
+    local function handle_melee(obj, enemy)
+
+        if enemy and distance(obj, enemy) <= MELEE_DISTANCE then
+            state_mgr.set_state(obj, "threat_na")
+            return true
+        end
+
+        return false
+    end
+
+    --------------------------------------------------
+    -- RELEASE CONTROL BACK TO SISKI
+    --------------------------------------------------
+
+    local function release_control(obj)
+        override_active[obj:id()] = nil
+    end
+
+    --------------------------------------------------
+    -- UPDATE
+    --------------------------------------------------
+
+    local original_update = bind_stalker.update
+
+    function bind_stalker:update(...)
+
+        original_update(self, ...)
+
+        local obj = self.object
+        if not obj or not obj:alive() then return end
+
+        local enemy = detect_enemy(obj)
+
+        --------------------------------------------------
+        -- IF THREAT EXISTS → TAKE CONTROL
+        --------------------------------------------------
+
+        if enemy or in_combat(obj) then
+
+            override_active[obj:id()] = true
+
+            if enemy then
+                obj:set_dest_enemy(enemy)
+            end
+
+            if handle_melee(obj, enemy) then return end
+
+            if fire_control(obj, enemy) then return end
+
+            seek_cover(obj, enemy)
+
+            return
+        end
+
+        --------------------------------------------------
+        -- NO THREAT → RETURN TO SISKI
+        --------------------------------------------------
+
+        if override_active[obj:id()] then
+            release_control(obj)
+        end
+
+        -- tutaj nic nie robimy → SISKI ALIFE przejmuje sterowanie
+    end
+end

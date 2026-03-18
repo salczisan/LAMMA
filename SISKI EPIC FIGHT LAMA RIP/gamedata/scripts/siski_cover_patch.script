@@ -1,0 +1,36 @@
+local M = {}
+
+function M.has_enemy(npc)
+    if not npc then return false end
+    local enemy = npc:best_enemy()
+    if enemy ~= nil then
+        return true
+    end
+    return false
+end
+
+function M.update(npc)
+    if not npc then return end
+
+    local has_enemy = M.has_enemy(npc)
+
+    if has_enemy then
+        if npc.cover_patch_active ~= true then
+            npc.cover_patch_active = true
+
+            if cover_manager and cover_manager.enable then
+                cover_manager.enable(npc)
+            end
+        end
+    else
+        if npc.cover_patch_active == true then
+            npc.cover_patch_active = false
+
+            if cover_manager and cover_manager.disable then
+                cover_manager.disable(npc)
+            end
+        end
+    end
+end
+
+return M

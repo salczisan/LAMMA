@@ -1,0 +1,41 @@
+local original_SendScriptCallback = SendScriptCallback
+
+local function valid_npc(obj)
+    if obj == nil then
+        return false
+    end
+
+    if type(obj) ~= "userdata" then
+        return false
+    end
+
+    if not obj.alive then
+        return false
+    end
+
+    local ok, alive = pcall(function()
+        return obj:alive()
+    end)
+
+    if not ok then
+        return false
+    end
+
+    if not alive then
+        return false
+    end
+
+    return true
+end
+
+function SendScriptCallback(name, obj, ...)
+    if obj ~= nil then
+        if not valid_npc(obj) then
+            return
+        end
+    end
+
+    if original_SendScriptCallback then
+        original_SendScriptCallback(name, obj, ...)
+    end
+end

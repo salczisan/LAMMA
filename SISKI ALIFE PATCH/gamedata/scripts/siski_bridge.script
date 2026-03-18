@@ -1,0 +1,341 @@
+local M = {}
+
+pcall(require, "rumour_manager")
+
+local ok, xbus = pcall(require, "xbus")
+
+local ai_boot_time = time_global()
+
+if not ok then
+    printf("[SISKI_BRIDGE] xbus not found, bridge disabled")
+    return M
+end
+
+
+-- ==================================================
+-- CONFIG
+-- ==================================================
+
+local CONFIG = {
+    debug = false,
+    throttle_time = 5000,
+    last_event_time = {}
+}
+
+-- ==================================================
+-- INTERNAL STATE
+-- ==================================================
+
+local last_event_time = {}
+local known_enemies = {}
+
+
+-- ==================================================
+-- UTIL
+-- ==================================================
+
+local function now()
+    return time_global()
+end
+
+
+local function log(msg)
+    if CONFIG.debug then
+        printf("[SISKI_BRIDGE] %s", msg)
+    end
+end
+
+local function npc_ready(npc)
+
+    if not npc then
+        return false
+    end
+
+    if type(npc.id) ~= "function" then
+        return false
+    end
+
+    local ok, id = pcall(npc.id, npc)
+
+    if not ok or not id then
+        return false
+    end
+
+    if type(npc.alive) ~= "function" then
+        return false
+    end
+
+    local ok2, alive = pcall(npc.alive, npc)
+
+    if not ok2 or not alive then
+        return false
+    end
+
+    return true
+end
+
+local function safe_id(obj)
+
+    if not obj then
+        return nil
+    end
+
+    if obj.id then
+        local ok, result = pcall(obj.id, obj)
+        if ok then
+            return result
+        end
+    end
+
+    return nil
+end
+
+
+local function squad_valid(squad)
+
+    if not squad then
+        return false
+    end
+
+    if not squad.id then
+        return false
+    end
+
+    if squad.is_alive and not squad:is_alive() then
+        return false
+    end
+
+    if squad.members then
+        local members = squad:members()
+
+        if members and #members == 0 then
+            return false
+        end
+    end
+
+    return true
+
+end
+
+
+local function throttle(event, squad_id)
+
+    local key = event .. squad_id
+
+    local t = last_event_time[key]
+    local current = now()
+
+    if t and current - t < CONFIG.throttle_time then
+        return true
+    end
+
+    last_event_time[key] = current
+    return false
+
+end
+
+
+local function publish(event, data)
+
+    if not xbus then
+        return
+    end
+
+    xbus.publish(event, data)
+
+end
+
+
+local function payload()
+
+    return {
+        time = now()
+    }
+
+end
+
+local function enemy_known(squad_id, enemy_id)
+
+    if not enemy_id then
+        return false
+    end
+
+    local set = known_enemies[squad_id]
+
+    if not set then
+        set = {}
+        known_enemies[squad_id] = set
+    end
+
+    if set[enemy_id] then
+        return true
+    end
+
+    set[enemy_id] = now()
+
+    return false
+
+end
+
+local function now()
+    return time_global()
+end
+
+
+local function payload()
+    return {}
+end
+
+
+local function throttle(event, squad_id)
+
+    local key = event .. squad_id
+    local t = now()
+
+    local last = last_event_time[key]
+
+    if last and (t - last) < throttle_time then
+        return true
+    end
+
+    last_event_time[key] = t
+    return false
+
+end
+
+
+local function squad_valid(squad)
+
+    if not squad then
+        return false
+    end
+
+    if not squad:id() then
+        return false
+    end
+
+    return true
+
+end
+
+
+local function enemy_valid(enemy)
+
+    if not enemy then
+        return false
+    end
+
+    if not enemy:alive() then
+        return false
+    end
+
+    if not enemy:id() then
+        return false
+    end
+
+    return true
+
+end
+
+-- ==================================================
+-- PUBLIC API
+-- ==================================================
+
+function M.task_assigned(squad, task_type, target)
+
+    if not squad_valid(squad) then
+        return
+    end
+
+    local squad_id = safe_id(squad)
+
+    if not squad_id then
+        return
+    end
+
+    if throttle("task_assigned", squad_id) then
+        return
+    end
+
+    local data = payload()
+
+    data.squad = squad_id
+    data.task = task_type
+    data.target = target
+
+    publish("siski.task_assigned", data)
+
+    log("task_assigned " .. tostring(squad_id))
+
+end
+
+
+function M.enemy_spotted(squad, enemy)
+
+    if not npc_ready(enemy) then
+        return
+    end
+
+    if not squad or not squad:id() then
+        return
+    end
+
+    local squad_id = squad:id()
+
+    if throttle("enemy_spotted", squad_id) then
+        return
+    end
+
+    local data = payload()
+
+    data.squad = squad_id
+    data.enemy = enemy:id()
+
+    publish("siski.enemy_spotted", data)
+
+end
+
+
+function M.task_started(squad, task_type)
+
+    if not squad_valid(squad) then
+        return
+    end
+
+    local squad_id = squad:id()
+
+    local data = payload()
+
+    data.squad = squad_id
+    data.task = task_type
+
+    publish("siski.task_started", data)
+
+    log("task_started " .. tostring(squad_id) .. " " .. tostring(task_type))
+
+end
+
+
+function M.task_completed(squad, task_type)
+
+    if not squad_valid(squad) then
+        return
+    end
+
+    local squad_id = safe_id(squad)
+
+    if not squad_id then
+        return
+    end
+
+    local data = payload()
+
+    data.squad = squad_id
+    data.task = task_type
+
+    publish("siski.task_completed", data)
+
+end
+
+
+return M

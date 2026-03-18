@@ -1,0 +1,17 @@
+local ok_patch, patch = pcall(require, "siski_patch")
+
+if not ok_patch then
+    printf("[SISKI_PATCH_LOADER] patch load failed")
+    return
+end
+
+
+local ok_siski, siski = pcall(require, "siski")
+
+if not ok_siski then
+    printf("[SISKI_PATCH_LOADER] SISKI not found")
+    return
+end
+
+
+patch.apply(siski)
