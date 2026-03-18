@@ -1,0 +1,196 @@
+-- Siski Epic Fight - Утилиты Расширенного ИИ
+-- Логика расчета силы отряда и общие вспомогательные функции
+-- Портировано из мода npc_fleeing_0.33
+
+
+-- ==============================================================================================
+-- ULTRA SAFE HELPERS (Prevent CScriptEntity : cannot access class member Alive!)
+-- ==============================================================================================
+
+function is_alive(obj)
+    if not obj then return false end
+    local ok, res = pcall(function() return obj:alive() end)
+    return ok and res
+end
+
+function get_health(obj)
+    if not obj then return 0 end
+    local ok, res = pcall(function() return obj:health() end)
+    return ok and res or 0
+end
+
+function safe_is_wounded(npc)
+    if not is_alive(npc) then return false end
+    local ok, res = pcall(function() return IsWounded(npc) end)
+    return ok and res
+end
+
+function safe_best_enemy(npc)
+    if not is_alive(npc) then return nil end
+    local ok, res = pcall(function() return npc:best_enemy() end)
+    return ok and res or nil
+end
+
+function safe_best_danger(npc)
+    if not is_alive(npc) then return nil end
+    local ok, res = pcall(function() return npc:best_danger() end)
+    return ok and res or nil
+end
+
+function safe_movement_type(npc)
+    if not is_alive(npc) then return nil end
+    local ok, res = pcall(function() return npc:movement_type() end)
+    return ok and res or nil
+end
+
+function safe_in_restrictions(npc)
+    if not is_alive(npc) then return "" end
+    local ok, res = pcall(function() return npc:in_restrictions() end)
+    return ok and res or ""
+end
+
+function safe_has_info(npc, info)
+    if not is_alive(npc) then return false end
+    local ok, res = pcall(function() return npc:has_info(info) end)
+    return ok and res
+end
+
+function can_panic(npc)
+    local sfind = string.find
+    if not (npc and IsStalker(npc) and is_alive(npc)) then return false end
+    
+    local id = npc:id()
+    
+    -- [NEW] Check for Engine Busy States
+    local ok_busy, res_busy = pcall(function()
+        if npc:is_talking() then return true end
+        
+        local st = db.storage[id]
+        if st and st.active_scheme then
+            local scheme = st.active_scheme
+            if scheme == "meet" or scheme == "anim" or scheme == "salut" or scheme == "remark" then
+                return true
+            end
+        end
+        return false
+    end)
+    
+    if ok_busy and res_busy then return false end
+
+    if safe_is_wounded(npc) then return false end
+    
+    local visual = ""
+    local ok_v, res_v = pcall(function() return npc:get_visual_name() end)
+    if ok_v then visual = res_v:lower() end
+    
+    if sfind(visual, "zombie") or sfind(visual, "mutant") or sfind(visual, "ghost") then
+        return false
+    end
+    
+    if sfind(visual, "actors\\") then
+        return true
+    end
+    
+    return false
+end
+
+
+----------------------------------------------------------------------
+-- Таблицы расчета силы
+----------------------------------------------------------------------
+
+local rank_to_val = {
+    ["novice"] = 0.6, ["trainee"] = 0.6, ["experienced"] = 0.9, ["professional"] = 0.9,
+    ["veteran"] = 1.15, ["expert"] = 1.15, ["master"] = 1.4, ["legend"] = 1.4,
+}
+
+local comm_to_val = {
+    ["zombied"] = 0.7, ["bandit"] = 0.8, ["renegade"] = 0.8, ["stalker"] = 0.9, ["csky"] = 0.9, ["ecolog"] = 0.9,
+    ["dolg"] = 1, ["freedom"] = 1, ["army"] = 1.1, ["killer"] = 1.2, ["greh"] = 1.2, ["isg"] = 1.3, ["monolith"] = 1.3,
+}
+
+local mutant_to_val = {
+    [clsid["tushkano_s"]] = 0.1, [clsid["zombie_s"]] = 0.3, [clsid["dog_s"]] = 0.3,
+    [clsid["flesh_s"]] = 0.5, 
+    [clsid["fracture_s"]] = 0.5, [clsid["boar_s"]] = 0.75, [clsid["pseudodog_s"]] = 0.75,
+    [clsid["cat_s"]] = 0.75, [clsid["snork_s"]] = 0.75, ["SM_KARLIK"] = 0.75, [clsid["poltergeist_s"]] = 1, 
+    ["SM_LURKER"] = 1.5, [clsid["psy_dog_s"]] = 2,
+    ["SM_PSYSUCKER"] = 2.5, [clsid["bloodsucker_s"]] = 2.5, [clsid["burer_s"]] = 2.5, [clsid["chimera_s"]] = 3.5, 
+    [clsid["controller_s"]] = 4, [clsid["gigant_s"]] = 5,
+}
+
+----------------------------------------------------------------------
+-- GLOBAL AI STABILITY PATCH
+-- (safe addition, does not modify original systems)
+----------------------------------------------------------------------
+
+-- cooldown decyzji NPC (1 sekunda)
+npc_decision_cooldown = {}
+
+function can_npc_think(npc_id)
+
+    local t = time_global()
+
+    if npc_decision_cooldown[npc_id] == nil then
+        npc_decision_cooldown[npc_id] = t
+        return true
+    end
+
+    if (t - npc_decision_cooldown[npc_id]) > 1000 then
+        npc_decision_cooldown[npc_id] = t
+        return true
+    end
+
+    return false
+end
+
+
+-- blokada zmiany stanu (stabilizacja AI)
+npc_state_lock = {}
+
+function lock_npc_state(npc_id)
+    npc_state_lock[npc_id] = time_global()
+end
+
+function is_state_locked(npc_id)
+
+    local t = npc_state_lock[npc_id]
+
+    if not t then
+        return false
+    end
+
+    return (time_global() - t) < 2000
+end
+
+
+-- shared cache dla systemów cover
+shared_cover_cache = {}
+shared_cover_cache_time = {}
+
+function get_cached_cover(id)
+
+    local t = shared_cover_cache_time[id]
+
+    if not t then return nil end
+
+    if (time_global() - t) > 2000 then
+        shared_cover_cache[id] = nil
+        shared_cover_cache_time[id] = nil
+        return nil
+    end
+
+    return shared_cover_cache[id]
+end
+
+function set_cached_cover(id,val)
+
+    shared_cover_cache[id] = val
+    shared_cover_cache_time[id] = time_global()
+
+end
+
+
+function is_safe_mode()
+    return false
+end
