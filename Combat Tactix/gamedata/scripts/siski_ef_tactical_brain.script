@@ -1,0 +1,135 @@
+-- Siski Epic Fight - Tactical Brain
+
+
+-- =====================================================================================
+-- PATCH: AI STABILITY (uses functions from siski_ef_utils)
+-- =====================================================================================
+
+local function ai_decision_allowed(npc)
+
+    if not npc then return false end
+
+    local id = npc:id()
+
+    if not can_npc_think(id) then
+        return false
+    end
+
+    if is_state_locked(id) then
+        return false
+    end
+
+    return true
+end
+
+
+local function lock_state(npc)
+
+    if not npc then return end
+
+    lock_npc_state(npc:id())
+
+end
+
+
+
+-- =====================================================================================
+-- ORIGINAL LOGIC STARTS HERE
+-- =====================================================================================
+
+
+function tactical_brain(npc)
+
+    if not npc then
+        return
+    end
+
+
+    -- GLOBAL DECISION LIMITER
+    if not ai_decision_allowed(npc) then
+        return
+    end
+
+
+    local enemy = safe_best_enemy(npc)
+
+    if enemy and is_alive(enemy) then
+
+        local dist = npc:position():distance_to(enemy:position())
+
+
+        ------------------------------------------------------------------
+        -- CLOSE COMBAT
+        ------------------------------------------------------------------
+
+        if dist < 10 then
+
+            if siski_ef_close_combat then
+                siski_ef_close_combat.process(npc, enemy)
+                lock_state(npc)
+                return
+            end
+
+        end
+
+
+        ------------------------------------------------------------------
+        -- COVER LOGIC
+        ------------------------------------------------------------------
+
+        if siski_ef_cover then
+            local handled = siski_ef_cover.process(npc, enemy)
+
+            if handled then
+                lock_state(npc)
+                return
+            end
+        end
+
+
+        ------------------------------------------------------------------
+        -- AGGRO / PUSH
+        ------------------------------------------------------------------
+
+        if siski_ef_aggro then
+            local handled = siski_ef_aggro.process(npc, enemy)
+
+            if handled then
+                lock_state(npc)
+                return
+            end
+        end
+
+
+        ------------------------------------------------------------------
+        -- SEARCH / FLANK
+        ------------------------------------------------------------------
+
+        if siski_ef_search then
+            local handled = siski_ef_search.process(npc, enemy)
+
+            if handled then
+                lock_state(npc)
+                return
+            end
+        end
+
+    end
+
+
+    ----------------------------------------------------------------------
+    -- FLEE CHECK
+    ----------------------------------------------------------------------
+
+    if siski_ef_flee then
+
+        local flee = siski_ef_flee.process(npc)
+
+        if flee then
+            lock_state(npc)
+            return
+        end
+
+    end
+
+end
