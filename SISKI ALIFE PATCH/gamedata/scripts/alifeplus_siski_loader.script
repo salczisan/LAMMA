@@ -1,8 +1,0 @@
-local ok_adapter, adapter = pcall(require, "alifeplus_siski_adapter")
-
-if not ok_adapter then
-    printf("[ALIFEPLUS_LOADER] adapter failed")
-    return
-end
-
-adapter.init()

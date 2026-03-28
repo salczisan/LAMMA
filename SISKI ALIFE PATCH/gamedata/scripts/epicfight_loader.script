@@ -1,8 +1,0 @@
-local ok_adapter, adapter = pcall(require, "epicfight_siski_adapter")
-
-if not ok_adapter then
-    printf("[EPICFIGHT_LOADER] adapter failed")
-    return
-end
-
-adapter.init()
