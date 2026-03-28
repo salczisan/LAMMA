@@ -27,6 +27,14 @@ function set_valuable_loot(id,val)
 	HasValuableLoot[id] = val
 end
 
+local function safe_is_destroyed(obj)
+    if not obj then return true end
+    if obj.is_destroyed then
+        return safe_is_destroyed(obj)
+    end
+    return false
+end
+
 ------------------------------------------
 -- Localized Functions
 ------------------------------------------
@@ -329,22 +337,20 @@ function evaluator_corpse:find_valid_target()
 	if (size == 0) then
 		self.a.cstackprevent = true
 
-		for o in npc:memory_visible_objects() do
+for o in npc:memory_visible_objects() do
     local obj = o and o:object()
 
-    -- PATCH: fast reject to avoid expensive checks
-    if obj then
+    if obj and (not obj.is_destroyed or not safe_is_destroyed(obj)) and obj.alive then
         local alive = obj:alive()
 
-        if (alive == false) then
-            if ((IsStalker(obj) or IsMonster(obj)) and not near_actor(obj)) then
+        if alive == false then
+            if (IsStalker(obj) or IsMonster(obj)) and (not near_actor(obj)) then
                 size = size + 1
                 self.a.memory[size] = obj:id()
             end
         end
     end
 end
-		self.a.cstackprevent = nil
 	end
 
 	if (size == 0 or self.a.index > size) then
@@ -375,15 +381,14 @@ end
 		return false
 	end
 
-	local id = self.a.memory[self.a.index]
-	local corpse_npc = id  and db.storage[id] and db.storage[id].object
+local id = self.a.memory[self.a.index]
+local corpse_npc = id and db.storage[id] and db.storage[id].object
 
-	if (corpse_npc and corpse_npc:alive() ~= true and HasValuableLoot[id] and db.storage[id] and db.storage[id].corpse_already_selected == nil) then
-		local is_stalker = IsStalker(corpse_npc)
-		local can_loot_mutants = not is_stalker and (self.a.analse_mode == "true" or self.a.enabled == "true" and MonsterLootCommunities[character_community(npc)])
+if corpse_npc and (not safe_is_destroyed(corpse_npc)) and corpse_npc.alive then
+    local is_stalker = IsStalker(corpse_npc)
+    local can_loot_mutants = not is_stalker and (self.a.analse_mode == "true" or (self.a.enabled == "true" and MonsterLootCommunities[character_community(npc)]))
 
-		if (self.a.enabled == "true" and is_stalker or can_loot_mutants) then
-			local npc_pos = npc:position()
+    if (self.a.enabled == "true" and is_stalker or can_loot_mutants) then			local npc_pos = npc:position()
 			local corpse_pos = utils_obj.safe_bone_pos(corpse_npc,"bip01_spine")
 			local dist = npc_pos:distance_to_sqr(corpse_pos)
 
