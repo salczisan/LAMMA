@@ -510,21 +510,34 @@ function lmove(npc,vid,old_vid)
 	return vid
 end
 
-function send_to_nearest_accessible_vertex(npc,v_id,caller)
--- отослать в ближайшую разрешённую ноду по направлению к заданной.
--- возвращает vertex_id, в которое отправил персонажа
+function send_to_nearest_accessible_vertex(npc, v_id, caller)
 
-	if (v_id == nil or v_id >= 4294967295) then
-		npc:set_dest_level_vertex_id(npc:level_vertex_id())
-		return npc:level_vertex_id()
-	end
-	if not (npc:accessible(v_id)) then
-		local new_lvid,vtemp = npc:accessible_nearest(level.vertex_position(v_id),VEC_ZERO)
-		npc:set_dest_level_vertex_id(new_lvid)
-		return new_lvid
-	end
-	npc:set_dest_level_vertex_id(v_id)
-	return v_id
+    if (v_id == nil or v_id >= 4294967295) then
+        local cur = npc:level_vertex_id()
+        npc:set_dest_level_vertex_id(cur)
+        return cur
+    end
+
+    local pos = level.vertex_position(v_id)
+
+    -- najpierw sprawdzamy POZYCJĘ
+    if npc:accessible(pos) then
+        npc:set_dest_level_vertex_id(v_id)
+        return v_id
+    end
+
+    -- tylko jeśli trzeba używamy nearest
+    local new_lvid = npc:accessible_nearest(pos, VEC_ZERO)
+
+    if new_lvid and npc:accessible(new_lvid) then
+        npc:set_dest_level_vertex_id(new_lvid)
+        return new_lvid
+    end
+
+    -- fallback
+    local cur = npc:level_vertex_id()
+    npc:set_dest_level_vertex_id(cur)
+    return cur
 end
 
 function find_random_cover(npc,pos,min_rad,max_rad)

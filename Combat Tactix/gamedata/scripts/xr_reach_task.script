@@ -103,7 +103,9 @@ function action_reach_task_location:soldier_execute(squad)
 	if not (commander and commander:alive()) then return end
 	local lvid, d_dir = get_npc_command(npc)
 	npc:set_path_type(game_object.level_path)
-	if lvid then utils_obj.send_to_nearest_accessible_vertex(npc, lvid) end
+	if lvid then
+    lvid = utils_obj.send_to_nearest_accessible_vertex(npc, lvid, "reach_task")
+end
 	npc:set_movement_type(move.walk)
 end
 function setup_generic_scheme(npc,ini,scheme,section,stype,temp)

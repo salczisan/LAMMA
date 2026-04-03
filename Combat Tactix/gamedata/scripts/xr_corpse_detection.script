@@ -35,6 +35,21 @@ local function safe_is_destroyed(obj)
     return false
 end
 
+local function safe_alive(obj)
+    if not obj then return false end
+
+    local alive_fn = obj.alive
+
+    if type(alive_fn) == "function" then
+        local ok, result = pcall(alive_fn, obj)
+        if ok then
+            return result
+        end
+    end
+
+    return false
+end
+
 ------------------------------------------
 -- Localized Functions
 ------------------------------------------
@@ -214,7 +229,7 @@ function get_all_from_corpse(npc)
 	st.nearest_corpse_position = nil
 	st.nearest_id = nil
 
-	if (corpse_npc == nil or corpse_npc:alive() == true) then
+	if (corpse_npc == nil or safe_alive(corpse_npc) == true) then
 		return
 	end
 
@@ -301,6 +316,12 @@ function near_actor(obj)
 end
 
 function evaluator_corpse:find_valid_target()
+self.a._loop_guard = (self.a._loop_guard or 0) + 1
+
+if self.a._loop_guard > 10 then
+    self.a._loop_guard = 0
+    return nil
+end
 	if (self.a.cstackprevent) then
 		printf("C Stack Overflow Prevention: warning xr_corpse_detection scheme making repeated calls without return; save now and reload!")
 		return false
@@ -334,24 +355,21 @@ function evaluator_corpse:find_valid_target()
 	local npc = self.object
 
 	local size = #self.a.memory
-	if (size == 0) then
-		self.a.cstackprevent = true
 
-for o in npc:memory_visible_objects() do
+if (size == 0) then
+    for o in npc:memory_visible_objects() do
     local obj = o and o:object()
 
-    if obj and (not obj.is_destroyed or not safe_is_destroyed(obj)) and obj.alive then
-        local alive = obj:alive()
-
-        if alive == false then
-            if (IsStalker(obj) or IsMonster(obj)) and (not near_actor(obj)) then
-                size = size + 1
-                self.a.memory[size] = obj:id()
-            end
+    if obj and not safe_is_destroyed(obj) then
+        if (IsStalker(obj) or IsMonster(obj)) and (not near_actor(obj)) then
+            size = size + 1
+            self.a.memory[size] = obj:id()
         end
     end
+	if obj and not safe_is_destroyed(obj) and (IsStalker(obj) or IsMonster(obj)) then
 end
-	end
+    end
+end
 
 	if (size == 0 or self.a.index > size) then
 		if (self.a.nearest_id and HasValuableLoot[self.a.nearest_id] and db.storage[self.a.nearest_id] and db.storage[self.a.nearest_id].corpse_already_selected == nil) then
@@ -388,24 +406,27 @@ if corpse_npc and (not safe_is_destroyed(corpse_npc)) and corpse_npc.alive then
     local is_stalker = IsStalker(corpse_npc)
     local can_loot_mutants = not is_stalker and (self.a.analse_mode == "true" or (self.a.enabled == "true" and MonsterLootCommunities[character_community(npc)]))
 
-    if (self.a.enabled == "true" and is_stalker or can_loot_mutants) then			local npc_pos = npc:position()
-			local corpse_pos = utils_obj.safe_bone_pos(corpse_npc,"bip01_spine")
-			local dist = npc_pos:distance_to_sqr(corpse_pos)
+    if (self.a.enabled == "true" and is_stalker) or can_loot_mutants then
+    local npc_pos = npc:position()
+    local corpse_pos = utils_obj.safe_bone_pos(corpse_npc, "bip01_spine")
+    local dist = npc_pos:distance_to_sqr(corpse_pos)
 
-			if (dist < AlwaysDetectDistance) and (self.a.nearest_corpse_dist == nil or dist <= self.a.nearest_corpse_dist) then
-				local corpse_vertex = level.vertex_id(corpse_pos)
-				if level.vertex_position(corpse_vertex):distance_to_sqr(corpse_pos) > 16 then
-					corpse_vertex = corpse_npc:level_vertex_id()
-				end
-				if (npc:accessible(corpse_vertex) and level.vertex_position(corpse_vertex):distance_to_sqr(corpse_pos) <= 15) then
-					self.a.nearest_corpse_dist = dist
-					self.a.nearest_corpse_vertex = corpse_vertex
-					self.a.nearest_corpse_position = corpse_pos
-					self.a.nearest_id = id
-					self.a.nearest_state = dist < math.random(5,30) and StateWalk or StateRun
-				end
-			end
-		end
+    if (dist < AlwaysDetectDistance) and (self.a.nearest_corpse_dist == nil or dist <= self.a.nearest_corpse_dist) then
+        local corpse_vertex = level.vertex_id(corpse_pos)
+
+        if level.vertex_position(corpse_vertex):distance_to_sqr(corpse_pos) > 16 then
+            corpse_vertex = corpse_npc:level_vertex_id()
+        end
+
+        if npc:accessible(corpse_vertex) and level.vertex_position(corpse_vertex):distance_to_sqr(corpse_pos) <= 15 then
+            self.a.nearest_corpse_dist = dist
+            self.a.nearest_corpse_vertex = corpse_vertex
+            self.a.nearest_corpse_position = corpse_pos
+            self.a.nearest_id = id
+            self.a.nearest_state = dist < math.random(5,30) and StateWalk or StateRun
+        end
+    end
+end
 	end
 
 	self.a.index = self.a.index + 1
@@ -416,7 +437,7 @@ end
 function evaluator_corpse:evaluate()
 	--utils_data.debug_write("eva_corpse")
 	
-	if not (self.object:alive()) then 
+	if not safe_alive(self.object) then
 		return false 
 	end 
 	

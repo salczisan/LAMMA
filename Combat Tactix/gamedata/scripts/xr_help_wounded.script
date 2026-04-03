@@ -304,7 +304,11 @@ function action_help_wounded:execute()
 		if (npc:path_type() ~= game_object.level_path) then 
 			npc:set_path_type(game_object.level_path)
 		end
-		st.vertex_id = utils_obj.send_to_nearest_accessible_vertex(npc, st.vertex_id,"xr_help_wounded:2")
+		local vid = utils_obj.send_to_nearest_accessible_vertex(npc, st.vertex_id, "xr_help_wounded")
+
+if vid then
+    st.vertex_id = vid
+end
 		if (has_enemy(npc)) then
 			state_mgr.set_state(npc, "assault")
 		else
