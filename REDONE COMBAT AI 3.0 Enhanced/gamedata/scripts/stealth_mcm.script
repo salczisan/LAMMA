@@ -1,0 +1,107 @@
+-- If you don't use MCM, change your defaults from here.
+local defaults = {
+	["memory"] = 1,
+	["luminocity"] = 1,
+	["distance"] = 1,
+	["velocity"] = 1,
+	["weight"] = 1,
+	["crouch"] = 0.4,
+	["low_crouch"] = 0.25,
+	["icon"] = false,
+	["enable_ai_aim"] = true,
+	["enable_danger_alert"] = true,
+	["redone_ai_detection"] = true,
+	["detection_rank_enabled"] = true,
+	["detection_rank_mult"] = 1.0,
+	["detection_weather_enabled"] = true,
+    	["detection_weather_mult"] = 1.0,
+	["redone_ai_sound"] = true,
+	["sound_DNG_mult"] = 1.0,
+	["sound_WPN_mult"] = 1.0,
+	["sound_MST_mult"] = 1.0,
+	["sound_ITM_mult"] = 1.0,
+	["sound_combat_enabled"] = true,
+    	["sound_limit"] = 35.0,
+	["sound_rank_mult"] = 1.0,
+	["sound_rank_enabled"] = true,
+	["sound_rank_mult"] = 1.0,
+	["sound_weather_enabled"] = true,
+    	["sound_weather_mult"] = 1.0,
+	["michiko_patch"] = false,
+	["debugx"] = false,
+}
+
+function get_config(key)
+	if ui_mcm then return ui_mcm.get("stealth/"..key) else return defaults[key] end
+end
+
+function on_mcm_load()
+	op = { id= "stealth",sh=true ,gr={
+			-- Stealth Title
+			{id= "title",type= "slide",link= "ui_options_slider_player",text="ui_mcm_stealth_title",size= {512,50},spacing= 20},
+
+			-- Stealth Tracks		
+			{id = "title" ,type= "title" ,text= "ui_mcm_stealth_header_main", size = {512,50}, spacing = 20},
+			{id = "memory", type = "track", val = 2, min=0.1,max=3,step=0.1, def = 1},
+			{id = "luminocity", type = "track", val = 2, min=0.1,max=3,step=0.1, def = 1},
+			{id = "distance", type = "track", val = 2, min=0.1,max=3,step=0.1, def = 1},
+			{id = "velocity", type = "track", val = 2, min=0.1,max=3,step=0.1, def = 1},
+			{id = "weight", type = "track", val = 2, min=0.1,max=3,step=0.1, def = 1},
+			{id = "crouch", type = "track", val = 2, min=0.05,max=1,step=0.05, def = 0.4},
+			{id = "low_crouch", type = "track", val = 2, min=0.05,max=1,step=0.05, def = 0.25},
+			{id = "nvg_val", type = "track", val = 2, min=0,max=3,step=0.05, def = 1},
+			{id = "divider", type="line"},
+
+-- Combat AI Settings Title
+			{id = "title", type = "title", text = "ui_mcm_redone_title", size = {512,50}, spacing = 20},
+
+			-- Combat AI Settings
+			{id = "enable_ai_aim", type = "check", val = 1, def = true},
+			{id = "enable_danger_alert", type = "check", val = 1, def = true},
+
+			-- Combat AI Detection Checks & Tracks
+			{id = "title", type = "title", text = "ui_mcm_detection_settings_title", size = {512,50}, spacing = 20},
+			{id = "redone_ai_detection", type = "check", val = 1, def = true},
+			{id = "detection_rank_enabled", type = "check", val = 1, def = true},
+			{id = "detection_weather_enabled", type = "check", val = 1, def = true},
+			{id = "detection_rank_mult", type = "track", val = 2, min=0.1,max=2,step=0.1, def = 1},
+			{id = "detection_weather_mult", type = "track", val = 2, min=0.1,max=2,step=0.1, def = 1},
+
+			-- Combat AI Sound Checks & Tracks
+			{id = "title", type = "title", text = "ui_mcm_sound_settings_title", size = {512,50}, spacing = 20},
+			{id = "redone_ai_sound", type = "check", val = 1, def = true},
+			{id = "sound_combat_enabled", type = "check", val = 1, def = true},
+			{id = "sound_rank_enabled", type = "check", val = 1, def = true},
+			{id = "sound_weather_enabled", type = "check", val = 1, def = true},
+			{id = "sound_DNG_mult", type = "track", val = 2, min=0.1,max=2,step=0.1, def = 1},
+			{id = "sound_WPN_mult", type = "track", val = 2, min=0.1,max=2,step=0.1, def = 1},
+			{id = "sound_MST_mult", type = "track", val = 2, min=0.1,max=2,step=0.1, def = 1},
+			{id = "sound_ITM_mult", type = "track", val = 2, min=0.1,max=2,step=0.1, def = 1},
+			{id = "sound_limit", type = "track", val = 2, min=25.0,max=50.0,step=0.5,def = 35.0},
+			{id = "sound_rank_mult", type = "track", val = 2, min=0.1,max=2,step=0.1, def = 1},
+			{id = "sound_weather_mult", type = "track", val = 2, min=0.1,max=2,step=0.1, def = 1},
+			{id = "divider", type = "line"},
+
+
+			-- Stealth Checks
+			{id = "title" ,type= "title" ,text= "ui_mcm_stealth_header_hud", size = {512,50}, spacing = 20},
+			{id = "icon", type = "check", val = 1, def = false},
+			{id = "icon_type", type= "list", val= 2, def= 1, content= { {1, "Light indicator"} , {2, "NPC vision"}} , no_str = true},
+			{id = "icon_x", type = "input", val = 2, min=0,max=1000, def = 970},
+			{id = "icon_y", type = "input", val = 2, min=0,max=1000, def = 650},
+			{id = "divider", type = "line"},
+
+			-- Patches
+			{id = "title" ,type= "title" ,text= "ui_mcm_stealth_header_patches", size = {512,50}, spacing = 20},
+			{id = "michiko_patch", type = "check", val = 1, def = false},
+			{id = "divider", type = "line"},
+
+			-- Debug
+			{id = "title" ,type= "title" ,text= "ui_mcm_stealth_header_debug", size = {512,50}, spacing = 20},
+			{id = "debugx", type = "check", val = 1, def = false},
+			{id = "divider", type = "line"},
+		}
+	}
+
+	return op
+end

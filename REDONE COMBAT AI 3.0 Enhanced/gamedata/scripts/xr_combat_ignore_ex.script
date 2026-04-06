@@ -1,0 +1,51 @@
+--[[----------------------------------------------------------------------------------------------------
+	Overrides
+------------------------------------------------------------------------------------------------------]]
+function xr_combat_ignore.ignore_enemy_by_overrides(obj,enemy,no_check_job)
+	if not (enemy) then
+		return true
+	end
+
+	if (IsStalker(obj)) then
+		if (enemy:section() == "mar_smart_terrain_doc_dog" or enemy:section() == "mar_smart_terrain_base_dog_doctor") then
+			return true
+		end
+	end
+
+	local id = obj:id()
+	local ene_id = enemy:id()
+
+	local st = db.storage[id] and db.storage[id].overrides
+
+	--	This skips enemy_ignore of obj when enemy doesn't have overrides, considered a bug.
+	--	Ex: enemy that doesn't have logic at all, enemy squad on moving to a smart terrain.
+
+	--if not (st) then
+	--	return false
+	--end
+
+	-- combat_ignore_cond from custom data logic
+	local ignore = st and st.combat_ignore and xr_logic.pick_section_from_condlist(enemy, obj, st.combat_ignore.condlist)
+	if (ignore == "true") then
+		--obj:enable_memory_object(enemy,false)
+		return true
+	end
+
+	-- enemy_ignore_cond override from custom data logic
+	-- if this is true then npc will IGNORE combat with this specific enemy
+	local ene_st = db.storage[ene_id] and db.storage[ene_id].overrides
+	if (ene_st) then
+		ignore = ene_st.enemy_ignore and xr_logic.pick_section_from_condlist(enemy, obj, ene_st.enemy_ignore.condlist)
+		if (ignore == "true") then
+			--obj:enable_memory_object(enemy,false)
+			return true
+		end
+	end
+
+	-- Ignore enemies because of no_combat_job
+	if (no_check_job ~= true) and (st and st.no_combat_job and xr_logic.pick_section_from_condlist(enemy, obj, st.no_combat_job.condlist) == "true") then
+		return true
+	end
+
+	return false
+end
