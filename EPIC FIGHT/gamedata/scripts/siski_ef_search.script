@@ -1,0 +1,140 @@
+-- Siski Epic Fight - Search Logic
+
+
+-- =====================================================================================
+-- SAFE HELPERS
+-- =====================================================================================
+
+local function npc_alive(npc)
+    return npc and is_alive(npc)
+end
+
+
+local function decision_allowed(npc)
+
+    if not npc then return false end
+
+    local id = npc:id()
+
+    if not can_npc_think(id) then
+        return false
+    end
+
+    if is_state_locked(id) then
+        return false
+    end
+
+    return true
+end
+
+
+
+-- =====================================================================================
+-- SEARCH CACHE
+-- =====================================================================================
+
+local search_cache = {}
+local search_cache_time = {}
+
+local function get_cached_search(id)
+
+    local t = search_cache_time[id]
+
+    if not t then return nil end
+
+    if (time_global() - t) > 2000 then
+        search_cache[id] = nil
+        search_cache_time[id] = nil
+        return nil
+    end
+
+    return search_cache[id]
+end
+
+
+local function set_cached_search(id,val)
+
+    search_cache[id] = val
+    search_cache_time[id] = time_global()
+
+end
+
+
+
+-- =====================================================================================
+-- SEARCH PROCESS
+-- =====================================================================================
+
+function process(npc, enemy)
+
+    if not npc_alive(npc) then
+        return false
+    end
+
+    if not enemy then
+        return false
+    end
+
+
+    -- GLOBAL DECISION LIMITER
+    if not decision_allowed(npc) then
+        return false
+    end
+
+
+    local npc_id = npc:id()
+
+
+    ----------------------------------------------------------------------
+    -- CACHE
+    ----------------------------------------------------------------------
+
+    local cached = get_cached_search(npc_id)
+
+    if cached ~= nil then
+        return cached
+    end
+
+
+
+    ----------------------------------------------------------------------
+    -- POSITION CALCULATION
+    ----------------------------------------------------------------------
+
+    local enemy_pos = enemy:position()
+
+    if not enemy_pos then
+        set_cached_search(npc_id,false)
+        return false
+    end
+
+
+
+    ----------------------------------------------------------------------
+    -- MOVE TO LAST KNOWN POSITION
+    ----------------------------------------------------------------------
+
+    local ok_move = pcall(function()
+
+        npc:set_dest_level_vertex_id(
+            level.vertex_id(enemy_pos)
+        )
+
+    end)
+
+
+    if ok_move then
+
+        lock_npc_state(npc_id)
+
+        set_cached_search(npc_id,true)
+
+        return true
+    end
+
+
+    set_cached_search(npc_id,false)
+
+    return false
+
+end
