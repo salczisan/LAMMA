@@ -1,0 +1,88 @@
+; ---------------------------------------
+; Danger manager configuration
+; ---------------------------------------
+
+;Note: Ignore distance is only checked if danger was produced by game_object.enemy with the exception of grenade and ent. corpse
+
+; -- danger_manager:
+
+; -- danger_perceive_type
+; eDangerPerceiveTypeHit
+; eDangerPerceiveTypeSound
+; eDangerPerceiveTypeVisual
+
+; -- danger_type		-- descr
+; eDangerTypeGrenade 			// grenade to explode nearby
+; eDangerTypeFreshEntityCorpse 		// I see a corpse
+; eDangerTypeEntityAttacked 		// someone is hit
+; eDangerTypeAttacked			// someone is attacked
+; eDangerTypeBulletRicochet		// I perceived bullet(knife) ricochet
+; eDangerTypeEnemySound			// idk ... is_relation_enemy(obj) makes sound?
+; eDangerTypeAttackSound		// someone is shooting
+; eDangerTypeEntityDeath		// someone becomes dead
+
+; -- danger_type		-- danger_perceive_type
+; grenade				// visual?
+; entity_corpse				// visual
+;entity_attacked			// sound
+;attacked				// hit
+;bullet_ricochet			// sound
+;enemy_sound				// sound
+;attack_sound				// sound
+;entity_death				// sound
+
+;ms
+![danger_inertion] ;May use condlists from xr_condition
+grenade 	= 25000
+entity_corpse 	= 120000
+entity_attacked = 50000
+attacked 	= 120000
+bullet_ricochet = 90000
+enemy_sound 	= 55000
+attack_sound 	= 90000
+entity_death 	= 50000
+hit		= 126000
+sound		= 40000
+visual		= 50000
+
+;dist^2
+![danger_object] ;Ignore distances squared -- May use condlists from xr_condition
+grenade 	= 15600
+entity_corpse 	= 65600
+entity_attacked = {=is_dark_night} 21600, {=is_night} 22600, {=is_heavy_rain} 23600, {=is_rain} 24600, 25600
+attacked 	= 85600
+bullet_ricochet = 86400
+enemy_sound 	= {=is_heavy_rain} 23600, {=is_rain} 24600, 25600
+attack_sound 	= {=is_heavy_rain} 18000, {=is_rain} 19000, 20000
+entity_death 	= {=is_heavy_rain} 13600,{=is_rain} 14600, 15600
+hit 		= 85600
+sound		= {=is_heavy_rain} 16800, {=is_rain} 17800, 18800
+visual		= {=is_dark_night} 16600, {=is_night} 17600, {=is_heavy_rain} 18600, {=is_rain} 19600, 20600
+
+;ms
+![danger_inertion_actor] ;May use condlists from xr_condition
+grenade 	= {=actor_enemy} 35000, 25000
+entity_corpse 	= {=actor_enemy} 460000, 120000
+entity_attacked = {=actor_enemy} 250000, 50000
+attacked 	= {=actor_enemy} 460000, 120000
+bullet_ricochet = {=actor_enemy} 370000, 90000
+enemy_sound 	= {=actor_enemy} 265000, 55000
+attack_sound 	= {=actor_enemy} 370000, 90000
+entity_death 	= {=actor_enemy} 250000, 75000
+hit		= {=actor_enemy} 478000, 194000
+sound		= {=actor_enemy} 220000, 60000
+visual		= {=actor_enemy} 250000, 75000
+
+;dist^2
+![danger_object_actor] ;Ignore distances squared -- May use condlists from xr_condition
+grenade 	= {=actor_enemy} 25000, 15600
+entity_corpse 	= {=actor_enemy} 85000, 65600
+entity_attacked = {=is_dark_night} 35500, {=is_night} 42500, {=is_heavy_rain} 42500, {=is_rain} 48500, 50000
+attacked 	= {=actor_enemy} 250000, 85600
+bullet_ricochet = {=actor_enemy} 105000, 86400
+enemy_sound 	= {=is_heavy_rain} 35000, {=is_rain} 45000, 55000
+attack_sound 	= {=is_heavy_rain} 30000, {=is_rain} 40000, 50000
+entity_death 	= {=is_heavy_rain} 25000, {=is_rain} 30000, 35000
+hit 		= {=actor_enemy} 126000, 85600
+sound		= {=is_heavy_rain} 22500, {=is_rain} 28500, 40000
+visual		= {=is_dark_night} 25000, {=is_night} 35000, {=is_heavy_rain} 35000, {=is_rain} 40000, 50000

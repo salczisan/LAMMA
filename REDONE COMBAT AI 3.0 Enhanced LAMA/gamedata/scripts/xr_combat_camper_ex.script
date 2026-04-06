@@ -1,0 +1,70 @@
+--[[----------------------------------------------------------------------------------------------------
+	Overrides
+------------------------------------------------------------------------------------------------------]]
+
+function xr_combat_camper.action_shoot:initialize()
+	action_base.initialize(self)
+	self.st.camper_combat_action = true
+	--xr_sound.set_sound_play(self.object:id(),"fight_enemy")
+end
+
+function xr_combat_camper.action_shoot:execute()
+	action_base.execute(self)
+	local new_state = "hide_fire"
+	local st = db.storage[self.object:id()]
+	if (st and st.ini and st.active_section and st.ini:line_exist(st.active_section,"combat_camper_state_fire")) then
+		new_state = st.ini:r_string_ex(st.active_section,"combat_camper_state_fire")
+	end
+	state_mgr.set_state(self.object,new_state,nil,nil,{look_object = self.object:best_enemy()},{fast_set = true})
+	--xr_sound.set_sound_play(self.object:id(),"fight")
+end
+
+function xr_combat_camper.action_look_around:reset()
+	self.forget_time     = device():time_global() + 3000 --(
+	self.change_dir_time = device():time_global() + 25000 --(
+
+	if not self.st.last_seen_pos and self.object:best_enemy() ~= nil then
+		self.st.last_seen_pos = self.object:best_enemy():position()
+	end
+
+	local new_state = "hide"
+	if math.random(1,100) <= 50 then
+		new_state = "hide_na"
+	end
+
+	local st = db.storage[self.object:id()]
+	if (st and st.ini and st.active_section and st.ini:line_exist(st.active_section,"combat_camper_state_look")) then
+		new_state = st.ini:r_string_ex(st.active_section,"combat_camper_state_look")
+	end
+	state_mgr.set_state(self.object,new_state,nil,nil,{look_position = self.st.last_seen_pos})
+end
+
+function xr_combat_camper.action_look_around:execute()
+	action_base.execute(self)
+
+	if (self.forget_time < device():time_global()) then
+		-- self.object:enable_memory_object( self.object:best_enemy(), false )
+		self.st.last_seen_pos = nil
+		return
+	end
+
+	if (self.change_dir_time < device():time_global()) then
+		self.change_dir_time = device():time_global() + math.random(8500,16500)
+
+		local ang = math.random(0,120) - 60
+		local dir = self.st.last_seen_pos and vector():set(self.st.last_seen_pos):sub(self.object:position()):normalize()
+		dir = dir and vector_rotate_y(dir,ang):normalize()
+		dir = dir and vector():set(dir.x * 10, dir.y * 10, dir.z * 10)
+
+		local new_state = "hide"
+		if math.random(1,100) <= 50 then
+			new_state = "hide_na"
+		end
+
+		local st = db.storage[self.object:id()]
+		if (st and st.ini and st.active_section and st.ini:line_exist(st.active_section,"combat_camper_state_look")) then
+			new_state = st.ini:r_string_ex(st.active_section,"combat_camper_state_look")
+		end
+		state_mgr.set_state(self.object,new_state,nil,nil,{look_position = dir and self.object:position():add(dir)},{fast_set = true})
+	end
+end
