@@ -1,0 +1,85 @@
+-- siski_ef_cover.script
+-- Siski Epic Fight — Cover Logic
+-- Fix: guard against conflict with Redone axr_fight_from_cover FSM scheme
+
+
+-- =====================================================================================
+-- SAFE HELPERS
+-- =====================================================================================
+
+local function npc_alive(npc)
+    return npc and is_alive(npc)
+end
+
+local function decision_allowed(npc)
+    if not npc then return false end
+    local id = npc:id()
+    if not can_npc_think(id) then return false end
+    if is_state_locked(id) then return false end
+    return true
+end
+
+
+-- =====================================================================================
+-- COVER PROCESS
+-- =====================================================================================
+
+function process(npc, enemy)
+
+    if not npc_alive(npc) then return false end
+    if not enemy then return false end
+
+    -- GLOBAL AI LIMITER
+    if not decision_allowed(npc) then return false end
+
+    local npc_id = npc:id()
+
+    -- -----------------------------------------------------------------------
+    -- REDONE FSM GUARD
+    -- If Redone's axr_fight_from_cover scheme is active on this NPC,
+    -- let Redone handle cover via its FSM/GOAP — don't fight for vertex control.
+    -- -----------------------------------------------------------------------
+    local st = db.storage[npc_id]
+    if st and st.active_scheme == "fight_from_cover" then
+        return false
+    end
+
+    -- -----------------------------------------------------------------------
+    -- COVER CACHE (2s TTL via siski_ef_utils)
+    -- -----------------------------------------------------------------------
+    local cached = get_cached_cover(npc_id)
+    if cached ~= nil then return cached end
+
+    -- -----------------------------------------------------------------------
+    -- DISTANCE CHECK — skip cover logic when enemy is right next to NPC
+    -- (close combat module handles <6m)
+    -- -----------------------------------------------------------------------
+    local dist = npc:position():distance_to(enemy:position())
+    if dist < 6 then
+        set_cached_cover(npc_id, false)
+        return false
+    end
+
+    -- -----------------------------------------------------------------------
+    -- ENGINE COVER EVALUATION
+    -- -----------------------------------------------------------------------
+    local best_cover = nil
+    local ok, result = pcall(function()
+        return npc:best_cover(enemy:position(), 15, 1)
+    end)
+    if ok then best_cover = result end
+
+    if best_cover then
+        local ok_move = pcall(function()
+            npc:set_dest_level_vertex_id(best_cover:level_vertex_id())
+        end)
+        if ok_move then
+            lock_npc_state(npc_id)
+            set_cached_cover(npc_id, true)
+            return true
+        end
+    end
+
+    set_cached_cover(npc_id, false)
+    return false
+end

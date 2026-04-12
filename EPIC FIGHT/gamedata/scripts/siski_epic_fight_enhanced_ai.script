@@ -1,0 +1,133 @@
+-- siski_epic_fight_enhanced_ai.script
+-- CENTRAL DISPATCHER — CPU SAFE, MODULE-WIRED, XLIBS-AWARE
+-- Fixes: lazy module refs, correct build_context API, on_update alias, cleanup hook
+
+local enhanced_ai = {}
+
+-- ============================================================
+-- CONSTANTS
+-- ============================================================
+
+local UPDATE_INTERVAL = 250   -- ms between updates per NPC
+
+-- ============================================================
+-- LAZY MODULE REFS
+-- Resolved on first use (all siski_ef_* load before enhanced_ai alphabetically,
+-- but enhanced_ai itself loads AFTER siski_epic_fight — so refs must be lazy here too)
+-- ============================================================
+
+local _flee    = nil
+local _cover   = nil
+local _close   = nil
+local _search  = nil
+local _anomaly = nil
+
+local function ensure_modules()
+    if not _flee    then _flee    = siski_ef_flee         end
+    if not _cover   then _cover   = siski_ef_cover        end
+    if not _close   then _close   = siski_ef_close_combat end
+    if not _search  then _search  = siski_ef_search       end
+    if not _anomaly then _anomaly = siski_ef_anomaly       end
+end
+
+-- ============================================================
+-- UPDATE THROTTLE
+-- ============================================================
+
+local _next_update = {}
+
+local function now()
+    return time_global()
+end
+
+-- ============================================================
+-- CONTEXT BUILDER
+-- Uses standard GAMMA API only (no Monolith-specific extensions)
+-- ============================================================
+
+local function build_context(obj)
+    local context = { object = obj }
+
+    -- best_enemy directly on game_object (standard GAMMA API)
+    local ok_e, enemy = pcall(function() return obj:best_enemy() end)
+    if ok_e and enemy then
+        local ok_a, alive = pcall(function() return enemy:alive() end)
+        if ok_a and alive then
+            context.enemy    = enemy
+            context.distance = obj:position():distance_to(enemy:position())
+            -- npc:see() is standard GAMMA API for line-of-sight check
+            local ok_s, see  = pcall(function() return obj:see(enemy) end)
+            context.has_los  = ok_s and see or false
+            context.can_shoot = context.has_los and context.distance < 40
+        end
+    end
+
+    return context
+end
+
+-- ============================================================
+-- MAIN UPDATE
+-- Called from siski_epic_fight.script → on_npc_update
+-- ============================================================
+
+function enhanced_ai.update(obj)
+    ensure_modules()
+
+    local id = obj:id()
+
+    -- Throttle: max once per UPDATE_INTERVAL ms per NPC
+    if _next_update[id] and now() < _next_update[id] then return end
+    _next_update[id] = now() + UPDATE_INTERVAL
+
+    -- Build shared context for all sub-modules
+    local context = build_context(obj)
+
+    -- -------------------------------------------------------
+    -- PRIORITY STACK (high → low)
+    -- Each module returns true if it handled the NPC this tick.
+    -- -------------------------------------------------------
+
+    -- 1. FLEE (force variant — numeric disadvantage flagged by caller)
+    if context.force_flee and not context.disable_flee then
+        if _flee and _flee.update and _flee.update(context) then return end
+    end
+
+    -- 2. FLEE (normal)
+    if not context.disable_flee then
+        if _flee and _flee.update and _flee.update(context) then return end
+    end
+
+    -- 3. CLOSE COMBAT (<10m + LOS)
+    if _close and _close.update and _close.update(context) then return end
+
+    -- 4. COVER (engine best_cover, cache 2s)
+    if _cover and _cover.process then
+        -- siski_ef_cover uses process() not update()
+        if _cover.process(context.object, context.enemy) then return end
+    end
+
+    -- 5. SEARCH (move to last known position)
+    if _search and _search.process then
+        if _search.process(context.object, context.enemy) then return end
+    end
+
+    -- 6. ANOMALY (burn/radiation escape — lowest priority)
+    if _anomaly and _anomaly.update and _anomaly.update(context) then return end
+end
+
+-- Alias used by siski_epic_fight.script (on_update naming convention)
+enhanced_ai.on_update = enhanced_ai.update
+
+-- ============================================================
+-- DEATH CLEANUP
+-- ============================================================
+
+function enhanced_ai.on_death(npc)
+    if not npc then return end
+    local id = npc:id()
+    _next_update[id] = nil
+end
+
+-- ============================================================
+
+return enhanced_ai

@@ -1,0 +1,155 @@
+-- ==============================================================================================
+-- SISKI EPIC FIGHT MCM MODULE
+-- Configuration for Dynamic Reactions (Panic, Rage, Surrender, etc.)
+-- ==============================================================================================
+
+function on_mcm_load()
+    op = { id= "siski_ef", sh=true, gr={
+            { id= "title", type= "slide", link= "ui_options_slider_player", text="ui_mcm_siski_ef_title", size= {512,50}, spacing= 20 },
+            
+            -- EPIC FIGHT (Глобальный переключатель)
+            -- Включает или выключает весь модуль боевых реакций
+            {id = "ef_enabled", type = "check", val = 1, def = true},
+            
+            {id = "line", type = "line" },
+            {id = "desc_panic", type = "desc", text = "ui_mcm_siski_ef_panic_header"},
+            
+            -- PANIC EVENT (Паника)
+            -- Включает логику паники (убегание, крики, прятание оружия)
+            {id = "ef_panic_enabled", type = "check", val = 1, def = true},
+            
+            -- Шанс паники (%) при ПОЛУЧЕНИИ УРОНА (On Hit)
+            {id = "ef_panic_on_hit", type = "track", val = 2, min=0, max=100, step=1, def = 5}, 
+            
+            -- Шанс паники (%) каждую секунду боя (On Tick)
+            -- Даже если в НПС не стреляют, он может запаниковать от страха
+            {id = "ef_panic_on_tick", type = "track", val = 2, min=0, max=100, step=1, def = 1}, 
+            
+            -- Минимальная длительность паники (сек)
+            {id = "ef_panic_dur_min", type = "track", val = 2, min=1, max=10, step=0.5, def = 2},
+            
+            -- Максимальная длительность паники (сек)
+            {id = "ef_panic_dur_max", type = "track", val = 2, min=1, max=10, step=0.5, def = 5},
+            
+            -- Убирать ли оружие при панике? (Holster/Hide Weapon)
+            -- Если включено, НПС спрячет ствол. Если выключено - просто побежит.
+            {id = "ef_panic_drop_wep", type = "check", val = 1, def = true},
+            
+            -- Множитель шанса паники против МУТАНТОВ
+            -- Например 1.5 = шанс паники в 1.5 раза выше, если бьет мутант.
+            {id = "ef_panic_monster_mult", type = "track", val = 2, min=1, max=5, step=0.1, def = 2},
+            
+            -- ИСТОЧНИКИ ПАНИКИ (Кто может напугать?)
+            {id = "ef_panic_src_actor", type = "check", val = 1, def = true}, -- ГГ
+            {id = "ef_panic_src_stalker", type = "check", val = 1, def = true}, -- Другие сталкеры
+            {id = "ef_panic_src_monster", type = "check", val = 1, def = true}, -- Мутанты
+            
+            {id = "line", type = "line" },
+            {id = "desc_disarm", type = "desc", text = "ui_mcm_siski_ef_disarm_header"},
+            
+            -- DISARM EVENT (Выбивание оружия)
+            -- Включает возможность выбить оружие из рук (упадет на землю)
+            {id = "ef_disarm_enabled", type = "check", val = 1, def = true},
+            
+            -- Шанс выбивания (%) при ПОЛУЧЕНИИ УРОНА
+            {id = "ef_disarm_on_hit", type = "track", val = 2, min=0, max=100, step=1, def = 1},
+            
+            -- ИСТОЧНИКИ ВЫБИВАНИЯ (Кто может выбить оружие?)
+            {id = "ef_disarm_src_actor", type = "check", val = 1, def = true}, -- ГГ (обычно включено)
+            {id = "ef_disarm_src_stalker", type = "check", val = 1, def = true}, -- НПС vs НПС (по умолчанию выкл, чтобы не засорять мир стволами)
+            {id = "ef_disarm_src_monster", type = "check", val = 1, def = true}, -- Мутанты (выбить лапой?)
+
+            {id = "line", type = "line" },
+            {id = "desc_ambush", type = "desc", text = "ui_mcm_siski_ef_ambush_header"},
+            
+            -- AMBUSH EVENT (Засада монстров)
+            -- Спавн мутанта за спиной ГГ во время боя (только ночью)
+            {id = "ef_ambush_enabled", type = "check", val = 1, def = false},
+            {id = "ef_ambush_chance", type = "track", val = 2, min=0, max=100, step=1, def = 1}, -- Шанс (тик)
+            {id = "ef_ambush_cooldown", type = "track", val = 2, min=1, max=12, step=0.5, def = 3}, -- Кулдаун (часов РЕАЛЬНОГО времени)
+
+            {id = "line", type = "line" },
+            {id = "desc_tactics", type = "desc", text = "ui_mcm_siski_ef_tactics_header"},
+            
+            -- CROUCH EVENT (Приседание)
+            -- НПС приседает при получении урона
+            {id = "ef_crouch_enabled", type = "check", val = 1, def = true},
+            {id = "ef_crouch_on_hit", type = "track", val = 2, min=0, max=100, step=1, def = 10},
+            {id = "ef_crouch_src_actor", type = "check", val = 1, def = true},
+            {id = "ef_crouch_src_stalker", type = "check", val = 1, def = true},
+            {id = "ef_crouch_src_monster", type = "check", val = 1, def = false}, -- По умолчанию выкл для мутантов
+            -- Мутанты не вызывают это событие (по ТЗ)
+
+            {id = "line", type = "line" },
+            
+            -- COVER EVENT (Поиск укрытия)
+            -- НПС меняет позицию на ближайшее укрытие
+            {id = "ef_cover_enabled", type = "check", val = 1, def = true},
+            {id = "ef_cover_on_hit", type = "track", val = 2, min=0, max=100, step=1, def = 10},
+            {id = "ef_cover_src_actor", type = "check", val = 1, def = true},
+            {id = "ef_cover_src_stalker", type = "check", val = 1, def = true},
+
+            {id = "line", type = "line" },
+
+            -- GRENADE EVENT (Бросок гранаты)
+            -- НПС кидают гранаты в бою (частота контролируется кулдауном 30сек)
+            {id = "ef_grenade_enabled", type = "check", val = 1, def = true},
+            -- Минимальное количество врагов для броска гранаты
+            {id = "ef_grenade_min_enemies", type = "track", val = 2, min=1, max=10, step=1, def = 1},
+            -- Бросать только когда в меньшинстве?
+            {id = "ef_grenade_only_outnumbered", type = "check", val = 1, def = false},
+
+            {id = "line", type = "line" },
+
+            -- FLANK EVENT (Обход с фланга)
+            -- НПС пытается обойти противника
+            {id = "ef_flank_enabled", type = "check", val = 1, def = true},
+            {id = "ef_flank_on_hit", type = "track", val = 2, min=0, max=100, step=1, def = 10},
+            {id = "ef_flank_src_actor", type = "check", val = 1, def = true},
+            {id = "ef_flank_src_stalker", type = "check", val = 1, def = true},
+            {id = "ef_flank_src_monster", type = "check", val = 1, def = false}, -- По умолчанию выкл для мутантов
+
+            {id = "line", type = "line" },
+
+            -- AGGRESSION & REFLEXES (Агрессия и Рефлексы)
+            -- Улучшает реакцию НПС и скорость прицеливания
+            {id = "ef_aggression_enabled", type = "check", val = 1, def = true},
+            -- Множитель скорости зрения (насколько быстро НПС 'замечает' цель)
+            {id = "ef_vision_speed", type = "track", val = 2, min=1.0, max=10.0, step=0.1, def = 2.0},
+            -- Бонус к времени реакции (мс) (0 = макс. скорость)
+            {id = "ef_aim_time", type = "track", val = 2, min=0, max=1000, step=50, def = 0},
+            -- Шанс форсированного выстрела (поверх обычного ИИ)
+            {id = "ef_aggro_fire_chance", type = "track", val = 2, min=0, max=100, step=1, def = 25},
+
+            {id = "line", type = "line" },
+
+            -- CLOSE COMBAT AWARENESS (Ближний бой)
+            -- Помогает НПС замечать врагов в упор
+            {id = "ef_near_awareness_enabled", type = "check", val = 1, def = true},
+            {id = "ef_near_awareness_dist", type = "track", val = 2, min=1, max=15, step=0.5, def = 7.0},
+            
+            -- FORCED TRACKING (Авто-сопровождение цели)
+            -- НПС всегда смотрит на врага в этом радиусе
+            {id = "ef_near_track_dist", type = "track", val = 2, min=1, max=10, step=0.5, def = 5.0},
+
+            -- EXECUTION (Добивание раненых)
+            -- НПС сразу убивает раненого врага без задержки
+            {id = "ef_execution_enabled", type = "check", val = 1, def = true},
+
+            -- FORCED FOV (Угол обзора в бою)
+            -- Расширяет сектор зрения НПС во время сражения
+            {id = "ef_forced_fov_enabled", type = "check", val = 1, def = true},
+            {id = "ef_forced_fov_value", type = "track", val = 2, min=60, max=180, step=5, def = 140},
+            
+            -- NO JAM (Отключение заклинивания оружия у НПС)
+            {id = "ef_no_jam_enabled", type = "check", val = 1, def = true},
+            
+            {id = "line", type = "line" },
+
+            -- ENHANCED AI
+            {id = "ef_enhanced_ai_header", type = "desc", text = "ui_mcm_siski_ef_enhanced_ai_header"},
+            {id = "ef_enhanced_ai_enabled", type = "check", val = 1, def = true},
+        }
+    }
+    return op
+end

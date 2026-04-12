@@ -1,0 +1,1334 @@
+-- ==============================================================================================
+-- SISKI EPIC FIGHT MODULE
+-- Dynamic npc reactions in gunfights system
+-- ==============================================================================================
+
+-- Helper to get MCM config
+function get_config(key, default)
+    if ui_mcm then
+        return ui_mcm.get("siski_ef/"..key) or default
+    end
+    return default
+end
+
+
+local cooldowns = {}        -- [npc_id] = last_trigger_time
+local battle_ticks = {}     -- [npc_id] = last_tick_time
+local active_states = {}    -- [npc_id] = { type="panic", end_time=..., data={} }
+
+-- GRENADE EVENT STATE TABLES
+local grenade_cooldowns = {}   -- [npc_id] = time_global() when cooldown expires (per-NPC, per-event)
+local force_grenade_npcs = {}  -- [npc_id] = grenade_game_object to force via hook
+function on_grenade_nearby(npc, grenade)
+    local id = npc:id()
+    local tg = time_global()
+    
+    if grenade_cooldowns[id] and tg < grenade_cooldowns[id] then return end
+    
+    -- Szukaj vertexu ucieczki (wykorzystaj find_tactical_cover)
+    local escape_vid = find_tactical_cover(npc)
+    if escape_vid then
+        npc:set_dest_level_vertex_id(escape_vid)
+        state_mgr.set_state(npc, "assault", nil, nil, nil, {fast_set = true})
+        grenade_cooldowns[id] = tg + 5000 -- Nie reaguj na co sekundę
+    end
+end
+
+
+local AC_ID = 0
+local CombatManager  -- Forward declaration
+
+-- LAZY REFS: siski_epic_fight_enhanced_ai loads AFTER this file alphabetically.
+-- Must be resolved at runtime, not at module-load time.
+local enhanced_ai    = nil   -- resolved in on_game_start
+local anomaly_handler = siski_ef_anomaly  -- loads before this file — safe
+
+-- ==============================================================================================
+-- SHARED HELPERS (Reusable)
+-- ==============================================================================================
+
+-- Find a safe spot to run to (Cover > Direction > Current)
+local function find_tactical_cover(npc)
+    if not npc then return nil end
+    local actor = db.actor
+    if not actor then return nil end
+
+    local npc_pos = npc:position()
+    local actor_pos = actor:position()
+    
+    local cover = npc:best_cover(npc_pos, actor_pos, 30, 10, 20)
+    
+    if cover then
+        local cover_vid = cover:level_vertex_id()
+        if cover_vid and cover_vid < 4294967295 and npc:accessible(cover_vid) then
+            return cover_vid
+        end
+    end
+    
+    local dir = vector():set(npc_pos.x - actor_pos.x, 0, npc_pos.z - actor_pos.z)
+    dir:normalize()
+    local distances = {20, 15, 10}
+    for _, dist in ipairs(distances) do
+        local target_pos = vector():set(npc_pos.x + dir.x * dist, npc_pos.y, npc_pos.z + dir.z * dist)
+        local vid = level.vertex_id(target_pos)
+        if vid and vid < 4294967295 and npc:accessible(vid) then
+            return vid
+        end
+    end
+    
+    return npc:level_vertex_id()
+end
+
+-- Drop active weapon and safely delete it (returns section name)
+local function force_drop_weapon(npc)
+    local item = npc:active_item()
+    if not item or not item:id() then return nil end
+    
+    local sec = item:section()
+    local item_id = item:id()
+    local npc_id = npc:id()
+    local se_item = alife_object(item_id)
+    
+    if se_item and se_item.parent_id == npc_id then
+        -- SIMPLE HOLSTER (User Request)
+        -- Just put it away. No drop. No delete.
+        npc:set_item(object.idle, item)
+                return sec
+    end
+    return nil
+end
+
+-- Create item safely on NPC
+local function alife_create_item(section, npc)
+    if not npc or not section then return nil end
+    return alife():create(section, npc:position(), npc:level_vertex_id(), npc:game_vertex_id(), npc:id())
+end
+
+-- Force stop any SISKI-driven engine actions (bursts, sight overrides)
+local function reset_npc_forced_actions(npc)
+    if not npc then return end
+    local wpn = npc:best_weapon()
+    if wpn and IsWeapon(wpn) then
+        npc:set_item(object.idle, wpn)
+    end
+    -- Reset sight to default (look in movement direction)
+    npc:set_sight(look.cur_dir, nil, 0)
+    -- Reset FOV to standard level
+    npc:set_fov(90)
+    
+   
+end
+
+
+-- ==============================================================================================
+-- BATTLE SCOPE (Meaningful Battles)
+-- ==============================================================================================
+
+local function is_meaningful_battle(npc)
+    local actor = db.actor
+    if not actor then return false end
+    
+    local id = npc:id()
+    local is_actor = (id == AC_ID)
+    
+    -- 1. Direct relevance: is actor involved in THIS NPC's battle?
+    -- OR: if this is actor, is there ANY battle with actor and enemies?
+    local ctx = CombatManager:get_context(npc)
+    if ctx then
+        -- If actor is in the same cluster, it's meaningful
+        for _, b in ipairs(CombatManager.battles) do
+            if b.members[id] and b.members[AC_ID] then
+                -- For actor, check if there are actual enemies in this cluster
+                if is_actor then
+                    for comm, count in pairs(b.factions) do
+                        if comm ~= "actor" then return true end
+                    end
+                else
+                    return true 
+                end
+            end
+        end
+    end
+    
+    -- 2. Proximity: is battle happening near actor? (ONLY for NPCs)
+    -- If we check this for actor, distance is always 0, leading to bugs.
+    if not is_actor then
+        local pos = npc:position()
+        local actor_pos = actor:position()
+        if pos:distance_to(actor_pos) < 150 then
+            return true
+        end
+    end
+    
+    return false
+end
+
+CombatManager = {
+    -- Registry of all active combatants [id] = {npc = obj, time = global_time}
+    combatants = {},
+    -- Clustered battles [1..N] = { center=vec3, radius=50, members={id=true}, factions={} }
+    battles = {},
+    last_tick = 0,
+
+    -- Register or update an NPC as "In Combat"
+    register = function(self, npc)
+        self.combatants[npc:id()] = { npc = npc, time = time_global() }
+    end,
+    
+    -- Main loop: Form clusters (Every 2s)
+    tick = function(self)
+        local now = time_global()
+        if now - self.last_tick < 2000 then return end
+        self.last_tick = now
+        
+        -- 1. Prune dead/afk combatants (older than 3s)
+        for id, data in pairs(self.combatants) do
+            if now - data.time > 3000 or not siski_ef_utils.is_alive(data.npc) then
+                self.combatants[id] = nil
+            end
+        end
+        
+        -- 2. Cluster
+        self.battles = {}
+        local assigned = {} -- [id] = true
+        
+        for id, data in pairs(self.combatants) do
+            if not assigned[id] then
+                -- Start a new battle cluster
+                local center = data.npc:position()
+                local new_battle = {
+                    center = center,
+                    members = { [id] = data.npc },
+                    factions = {} -- [comm] = count
+                }
+                assigned[id] = true
+                
+                -- Greedy search for neighbors
+                for other_id, other_data in pairs(self.combatants) do
+                    if not assigned[other_id] then
+                        if center:distance_to(other_data.npc:position()) < 60 then
+                            new_battle.members[other_id] = other_data.npc
+                            assigned[other_id] = true
+                        end
+                    end
+                end
+                
+                -- Calculate Stats
+                for m_id, m_npc in pairs(new_battle.members) do
+                    local comm = "monster"
+                    
+                    if m_id == AC_ID then
+                        comm = "actor"
+                    elseif IsStalker(m_npc) then
+                        comm = m_npc:character_community()
+                    end
+                    
+                    new_battle.factions[comm] = (new_battle.factions[comm] or 0) + 1
+                end
+                
+                table.insert(self.battles, new_battle)
+            end
+        end
+        
+        if #self.battles > 0 then
+            -- Optional debug
+                    end
+    end,
+    
+    -- Get context for a specific NPC
+    get_context = function(self, npc)
+        -- Find which battle this NPC is in
+        local battles = self.battles
+        local my_battle = nil
+        local id = npc:id()
+        
+        for _, b in ipairs(battles) do
+            if b.members[id] then
+                my_battle = b
+                break
+            end
+        end
+        
+        if not my_battle then return nil end
+        
+        -- Analyze
+        local my_comm = "monster"
+        if id == AC_ID then my_comm = "actor"
+        elseif IsStalker(npc) then my_comm = npc:character_community() end
+        
+        local allies = my_battle.factions[my_comm] or 0
+        local enemies = 0
+        
+        -- Sum up all other communities as enemies (simplification, assume hostility in combat)
+        -- Ideally checks relation, but community check is faster for aggregation
+        for comm, count in pairs(my_battle.factions) do
+            if comm ~= my_comm then
+                enemies = enemies + count
+            end
+        end
+        
+        return {
+            total_combatants = (allies + enemies),
+            allies = allies,
+            enemies = enemies,
+            outnumbered = (enemies > allies)
+        }
+    end
+}
+
+-- ==============================================================================================
+-- CHECK LOGIC (Encapsulated)
+-- ==============================================================================================
+
+local function can_trigger_event(npc, event_id, source_type)
+    -- 1. Global Enable
+    if not get_config("ef_enabled", true) then return false end
+    
+    -- 2. Event Enable
+    if not get_config("ef_" .. event_id .. "_enabled", true) then return false end
+    
+    -- 3. Active State Check (IMMUNITY)
+    -- If NPC is in ANY active event (Panic, Rage, whatever), they cannot trigger new ones.
+    if npc and active_states[npc:id()] then return false end
+    
+    -- 4. Source Check
+    if source_type then
+        local allowed = get_config("ef_" .. event_id .. "_src_" .. source_type, true)
+        if not allowed then return false end
+    end
+    
+    return true
+end
+
+-- ==============================================================================================
+-- DEEP PLANNER INJECTION REMOVED (Reverted by User Request)
+-- ==============================================================================================
+
+local Events = {}
+
+-- PANIC EVENT
+Events.Panic = {
+    id = "panic",
+    
+    action = function(self, npc)
+        if active_states[npc:id()] then return false end
+        
+        -- [PROTECTION] Clear any Aggro-Fire/Reflexes states before starting tactical move
+        reset_npc_forced_actions(npc)
+        
+        local vid = nil
+        
+        -- Use Unified Flee Logic if available
+        if siski_ef_flee then
+            local danger_obj = npc:best_enemy() or db.actor
+            vid = siski_ef_flee.find_flee_vertex(npc, danger_obj)
+        else
+            -- Fallback
+            vid = find_tactical_cover(npc)
+        end
+        
+        if not vid then return false end
+        
+        local min_dur = get_config("ef_panic_dur_min", 1)
+        local max_dur = get_config("ef_panic_dur_max", 5)
+        local duration = math.random(min_dur * 1000, max_dur * 1000)
+        
+        -- Store State in UNIFIED table
+        active_states[npc:id()] = {
+            type = "panic",
+            end_time = time_global() + duration,
+            target_vid = vid,
+            path_set = false
+        }
+        
+        -- OPTIMIZATION: Clear animations for INSTANT transition (no waiting for current anim)
+        npc:clear_animations()
+        
+        -- Holster weapon (optional)
+        if get_config("ef_panic_drop_wep", true) then
+            force_drop_weapon(npc)
+        end
+        
+        -- Safe sound call
+        if xr_sound and xr_sound.set_sound_play then
+            xr_sound.set_sound_play(npc:id(), "panic_human")
+        end
+        
+        -- Movement commands (order matters for responsiveness)
+        npc:set_path_type(game_object.level_path)
+        npc:set_detail_path_type(move.line)
+        npc:set_dest_level_vertex_id(vid)
+        npc:set_mental_state(anim.panic)
+        npc:set_movement_type(move.run)
+        
+                return true
+    end,
+    
+    on_hit = function(self, npc, context)
+        local chance = get_config("ef_panic_on_hit", 5)
+        
+        -- Dynamic logic from CombatManager
+        local battle_ctx = CombatManager:get_context(npc)
+        if battle_ctx and battle_ctx.outnumbered then
+            chance = chance * 1.5 -- 50% more likely to panic if outnumbered
+        end
+        
+        -- Monster Multiplier
+        if context.source == "monster" then
+             chance = chance * get_config("ef_panic_monster_mult", 3)
+        end
+        
+        if math.random(100) <= chance then
+            return self:action(npc)
+        end
+        return false
+    end,
+    
+    on_tick = function(self, npc)
+        local chance = get_config("ef_panic_on_tick", 2)
+        
+        -- Panic if heavily outnumbered on tick
+        local battle_ctx = CombatManager:get_context(npc)
+        if battle_ctx and battle_ctx.enemies > (battle_ctx.allies * 2) then
+             chance = chance * 2 
+        end
+        
+        if math.random(100) <= chance then
+            return self:action(npc)
+        end
+        return false
+    end
+}
+
+-- DISARM EVENT
+Events.Disarm = {
+    id = "disarm",
+    action = function(self, npc)
+        if active_states[npc:id()] then return false end
+        
+        -- [PROTECTION] Stop shooting for disarm
+        reset_npc_forced_actions(npc)
+        
+        -- Simple Drop (User Request: "without complexities")
+        local item = npc:active_item()
+        
+        -- STRICT CHECK: Must have an item, and it must be a weapon
+        if not item or (IsWeapon and not IsWeapon(item)) then 
+            return false 
+        end
+        
+        local sec = item:section()
+        local item_id = item:id()
+        local npc_id = npc:id()
+        
+        -- Minimal safety: Defer drop to next frame to avoid engine iterator crash
+        CreateTimeEvent("ef_simple_disarm_"..item_id, item_id, 0, function()
+            local npc_obj = level.object_by_id(npc_id)
+            local item_obj = level.object_by_id(item_id)
+            
+            local item_obj = level.object_by_id(item_id)
+            if siski_ef_utils.is_alive(npc_obj) and item_obj then
+                 npc_obj:drop_item(item_obj)
+                             end
+            return true
+        end)
+        
+        -- Register Active State (User Request: 2s timer)
+        active_states[npc_id] = {
+            type = "disarm",
+            end_time = time_global() + 2000
+        }
+
+        return true
+    end,
+    on_hit = function(self, npc, context)
+        local chance = get_config("ef_disarm_on_hit", 1)
+        if math.random(100) <= chance then
+            return self:action(npc)
+        end
+        return false
+    end,
+    on_tick = function(self, npc) return false end
+}
+
+-- AMBUSH EVENT (Mutant Spawn behind Actor)
+local session_ambush_cd = 0
+local last_ambush_check = 0
+
+Events.Ambush = {
+    id = "ambush",
+    action = function(self)
+        local actor = db.actor
+        if not actor then return false end
+        
+        -- [REMOVED v3] Combat check - Ambush should start the combat.
+
+        -- Night Check (approx 23:00 to 06:00)
+        local hour = level.get_time_hours()
+        if hour > 6 and hour < 23 then return false end
+        
+        -- Cooldown Check
+        local last_ambush = session_ambush_cd
+        if utils_obj and utils_obj.load_var then
+            local saved = utils_obj.load_var(actor, "siski_ef_ambush_cd") or 0
+            if saved > last_ambush then last_ambush = saved end
+        end
+        
+        if time_global() < last_ambush then return false end -- blocked
+
+        -- Calculate Position (Behind Actor, 7-10m)
+        local dir = actor:direction()
+        dir:mul(-1) -- backwards
+        dir = vector_rotate_y(dir, math.random(-30, 30)) -- slight variation
+        
+        local dist = math.random(7, 10)
+        local pos = actor:position()
+        pos:add(dir:mul(dist))
+        
+        local vid = level.vertex_id(pos)
+        if not vid or vid >= 4294967295 or not actor:accessible(vid) then
+             -- Try closer
+             vid = actor:level_vertex_id()
+             pos = actor:position()
+        end
+        
+        -- Spawn
+        local section = (math.random() > 0.5) and "simulation_chimera" or "simulation_bloodsucker"
+        local se_obj = alife():create(section, pos, vid, actor:game_vertex_id())
+        
+        if se_obj then
+                          
+             -- [NEW] Squad Initialization (Bypassing engine limits)
+             if SIMBOARD and SIMBOARD.setup_squad_and_group then
+                 SIMBOARD:setup_squad_and_group(se_obj)
+             end
+             
+             -- If it's a squad (expected), force create NPCs
+             if se_obj.create_npc then
+                 se_obj:create_npc(nil, pos, vid, actor:game_vertex_id())
+             end
+
+             -- [NEW] Force Aggression: Make mutant target the player after spawn
+             CreateTimeEvent("ef_ambush_aggro_"..se_obj.id, se_obj.id, 0.5, function()
+                 local obj = level.object_by_id(se_obj.id)
+                 if obj and obj:alive() then
+                     obj:make_object_visible_somewhen(actor)
+                     return true
+                 end
+                 return false
+             end)
+             
+             -- Set Cooldown (configurable real time hours)
+             local cd_hours = get_config("ef_ambush_cooldown", 3)
+             local cd = cd_hours * 3600 * 1000
+             session_ambush_cd = time_global() + cd
+             
+             if utils_obj and utils_obj.save_var then
+                 utils_obj.save_var(actor, "siski_ef_ambush_cd", session_ambush_cd)
+             end
+             return true
+        end
+        return false
+    end,
+    
+    on_hit = function(self, actor, context)
+        -- Ambush Event Triggered via actor_on_hit_callback
+        -- 1. Configuration Check
+        if get_config("ef_ambush_enabled", true) == false then return false end
+        
+        -- 2. Night Time Restriction (21:00 - 05:00)
+        local h = level.get_time_hours()
+        if (h >= 5 and h < 21) then return false end
+        
+        -- 3. Cooldown Check (Using saved/session variable)
+        if time_global() < session_ambush_cd then return false end
+        
+        -- 4. Throttle (Don't check every single hit if player is being sprayed)
+        local now = time_global()
+        if now < last_ambush_check then return false end
+        last_ambush_check = now + 5000 -- 5s throttle between chance checks
+        
+        -- 5. Trigger Chance
+        if math.random(100) <= get_config("ef_ambush_chance", 1) then
+            return self:action()
+        end
+        return false
+    end
+}
+
+-- CROUCH EVENT
+Events.Crouch = {
+    id = "crouch",
+    action = function(self, npc)
+        if active_states[npc:id()] then return false end
+        
+        -- [PROTECTION] Stop forced sight/burts
+        reset_npc_forced_actions(npc)
+        
+        local duration = math.random(1000, 5000)
+        
+        active_states[npc:id()] = {
+            type = "crouch",
+            end_time = time_global() + duration
+        }
+        
+        npc:clear_animations() -- Instant transition
+        npc:set_body_state(move.crouch)
+        npc:set_movement_type(move.run) -- can still move/shoot while crouching?
+        -- Actually, usually state enforcement handles this.
+        
+                return true
+    end,
+    on_hit = function(self, npc, context)
+        local chance = get_config("ef_crouch_on_hit", 10)
+        if math.random(100) <= chance then return self:action(npc) end
+        return false
+    end
+}
+
+-- COVER EVENT
+Events.Cover = {
+    id = "cover",
+    action = function(self, npc)
+        if active_states[npc:id()] then return false end
+        
+        -- [PROTECTION] Clear firing state
+        reset_npc_forced_actions(npc)
+        
+        local vid = find_tactical_cover(npc)
+        if not vid then return false end
+        
+        active_states[npc:id()] = {
+            type = "cover",
+            end_time = time_global() + 5000, -- Give 5s to reach cover
+            target_vid = vid,
+            path_set = false
+        }
+        
+        npc:clear_animations() -- Instant transition
+        npc:set_path_type(game_object.level_path)
+        npc:set_detail_path_type(move.line)
+        npc:set_dest_level_vertex_id(vid)
+        npc:set_movement_type(move.run)
+        
+                return true
+    end,
+    on_hit = function(self, npc, context)
+        local chance = get_config("ef_cover_on_hit", 10)
+        if math.random(100) <= chance then return self:action(npc) end
+        return false
+    end
+}
+
+-- FLANK EVENT
+Events.Flank = {
+    id = "flank",
+    action = function(self, npc)
+        if active_states[npc:id()] then return false end
+        local enemy = npc:best_enemy()
+        if not enemy then return false end
+         
+        -- 50% chance to find cover INSTEAD (User: "search cover before flanking")
+        -- Wait, user said: "with 50% chance ... searches cover before flanking as in p.3"
+        -- This implies: Find Cover -> Then Flank? Or Just Cover?
+        -- "Like in p.3" implies executing Cover Event.
+        if math.random() > 0.5 then
+            if Events.Cover:action(npc) then return true end
+        end
+        
+        -- Flank Vector Calculation
+        local npc_pos = npc:position()
+        local enemy_pos = enemy:position()
+        local dir_to_enemy = vector():set(enemy_pos.x - npc_pos.x, 0, enemy_pos.z - npc_pos.z)
+        local dist = dir_to_enemy:magnitude()
+        dir_to_enemy:normalize()
+        
+        -- Rotate 90 degrees (random left or right)
+        local angle = (math.random() > 0.5) and 90 or -90
+        local flank_dir = vector_rotate_y(dir_to_enemy, angle)
+        
+        local target_pos = vector():set(npc_pos.x + flank_dir.x * 20, npc_pos.y, npc_pos.z + flank_dir.z * 20)
+        local vid = level.vertex_id(target_pos)
+        
+        if not vid or vid >= 4294967295 or not npc:accessible(vid) then 
+            return false 
+        end
+        
+        active_states[npc:id()] = {
+             type = "flank",
+             end_time = time_global() + 6000,
+             target_vid = vid,
+             path_set = false
+        }
+        
+        -- [PROTECTION] Stop aggressive fire during flank
+        reset_npc_forced_actions(npc)
+        
+        npc:clear_animations() -- Instant transition
+        npc:set_path_type(game_object.level_path)
+        npc:set_detail_path_type(move.line)
+        npc:set_dest_level_vertex_id(vid)
+        npc:set_movement_type(move.run)
+        
+                return true
+    end,
+    on_hit = function(self, npc, context)
+        local chance = get_config("ef_flank_on_hit", 10)
+        if math.random(100) <= chance then return self:action(npc) end
+        return false
+    end,
+    on_tick = function(self, npc) return false end 
+}
+
+-- GRENADE EVENT (Native Hook Implementation)
+-- Uses _g.update_best_weapon engine hook to force grenade selection
+Events.Grenade = {
+    id = "grenade",
+    
+    action = function(self, npc)
+        local id = npc:id()
+        
+        -- [PROTECTION] Stop shooting to prepare grenade throw
+        reset_npc_forced_actions(npc)
+        
+        -- 1. Per-NPC 30s cooldown for THIS event
+        if grenade_cooldowns[id] and time_global() < grenade_cooldowns[id] then
+            return false
+        end
+        
+        -- 2. Tactical Context Check (CombatManager integration)
+        local context = CombatManager:get_context(npc)
+        if context then
+            local min_enemies = get_config("ef_grenade_min_enemies", 2)
+            local only_outnumbered = get_config("ef_grenade_only_outnumbered", false)
+            
+            -- Skip if not enough enemies
+            if context.enemies < min_enemies then
+                return false
+            end
+            
+            -- Skip if "only when outnumbered" is enabled and NPC is not outnumbered
+            if only_outnumbered and not context.outnumbered then
+                return false
+            end
+        end
+        
+        -- 3. Find existing grenade or spawn one
+        local grenade = npc:object("grenade_rgd5") or npc:object("grenade_f1")
+        if not grenade then
+            -- Spawn random grenade type
+                        local sec = math.random() < 0.5 and "grenade_rgd5" or "grenade_f1"
+            alife_create_item(sec, npc)
+            printf("EVENT: GRENADE | NPC: %s | Spawned [%s], will force on next tick", npc:name(), sec)
+
+            -- Set cooldown immediately to prevent double-spawn
+            grenade_cooldowns[id] = time_global() + 30000
+            return true -- Will trigger force on next tick after spawn
+        end
+        
+        -- 4. Register for hook override
+        force_grenade_npcs[id] = grenade
+        
+                -- 5. Start 30s cooldown
+        grenade_cooldowns[id] = time_global() + 30000
+        
+        printf("EVENT: GRENADE | NPC: %s | Forcing via hook (enemies: %d)", 
+            npc:name(), context and context.enemies or 0)
+        return true
+
+    end,
+    
+    on_hit = function(self, npc, context) return false end, -- Only trigger via tick
+    
+    on_tick = function(self, npc)
+        -- Hardcoded: always attempt to throw (cooldown + tactical checks inside action())
+        return self:action(npc)
+    end
+}
+
+-- ENGINE HOOK: Override best_weapon selection
+-- Called from C++ (ai_stalker_fire.cpp:463) every time NPC evaluates weapons
+function _g.update_best_weapon(npc, current_best)
+    if not npc then return nil end
+    local id = npc:id()
+    
+    local grenade = force_grenade_npcs[id]
+    if grenade then
+        force_grenade_npcs[id] = nil -- One-shot: don't keep forcing after first call
+                   printf("HOOK: Forcing grenade for NPC [%s]", npc:name())
+        return grenade
+    end
+    
+    return nil -- Use default engine logic
+end
+
+
+
+-- Force a specific state (Used by external modules like Anomaly Handler)
+-- Force a specific state (Used by external modules like Anomaly Handler)
+function force_panic_state(npc, danger_obj, duration)
+    -- STRICT SAFETY CHECK
+    -- [OFFLINE/DEAD RESTRICTION] Ignore offline or dead NPCs
+    if not (npc and npc.online and siski_ef_utils.is_alive(npc)) then return end
+    local id = npc:id()
+    
+    -- [NEW] Re-trigger Protection: Don't restart if already panicking
+    if active_states[id] and active_states[id].type == "panic" then
+        return
+    end
+    
+    -- 1. Calculate Flee Vertex (Try Smart -> Fallback to Dumb Random)
+    local vid = nil
+    if siski_ef_flee then
+        vid = siski_ef_flee.find_flee_vertex(npc, danger_obj)
+    end
+    
+    -- Absolute Fallback: any vertex 15-20m away
+    if not vid then
+        local dir = vector_rotate_y(npc:direction(), math.random(-120, 120))
+        vid = npc:vertex_in_direction(npc:level_vertex_id(), dir, 20)
+    end
+    
+    -- Still nil? Just run to current (panic in place) implies blocked, but unlikely
+    
+    -- 2. Immediate Logic Override (Wrapped in pcall for safety)
+        -- [NEW] Proactive Animation Check
+        local mental = anim.panic
+        if siski_ef_utils.can_panic and not siski_ef_utils.can_panic(npc) then
+            mental = anim.danger -- Fallback for non-standard visuals
+        end
+
+        pcall(function()
+            -- [REMOVED] npc:clear_animations()
+            -- Rationale: clear_animations() stops engine animation sequences abruptly.
+            -- If state_mgr is using an item (guitar, bread), this can cause alife_release errors/crashes.
+
+            if vid then
+                npc:set_path_type(game_object.level_path)
+                npc:set_dest_level_vertex_id(vid)
+            end
+            
+            -- FORCE BREAK ANIMATION LOOPS
+            if state_mgr then
+                -- 1. Stop SISKI ambient tracking (clears internal flags)
+                if siski_ambient and siski_ambient.stop_ambient then
+                    siski_ambient.stop_ambient(npc)
+                end
+                
+                -- 2. Unlock state_mgr
+                state_mgr.lock(npc, false) 
+                
+                -- 3. Transition to IDLE gently but firmly
+                -- {force = true} breaks standard logic, {fast_set = true} skips transitions
+                state_mgr.set_state(npc, "idle", nil, nil, nil, {fast_set = true, force = true})
+            end
+
+            -- Assert tactical state
+            npc:set_mental_state(mental)
+            npc:set_movement_type(move.run)
+            npc:set_body_state(move.standing)
+            
+            -- [NEW] Clear any forced engine actions (shooting, sight)
+            reset_npc_forced_actions(npc)
+            
+            -- Sound Feedback
+            if xr_sound then xr_sound.set_sound_play(id, "panic_human") end
+        end)
+
+    -- [NEW] Drop Vanilla Looting Tasks (Forget current target)
+    local st = db.storage[id]
+    if st then
+        -- 1. Gather Items Scheme
+        if st.gather_items then
+            st.gather_items.selected_obj_id = nil
+            st.gather_items.selected_obj = nil
+            st.gather_items.t_id = nil
+        end
+        -- 2. Corpse Detection Scheme
+        if st.corpse_detection then
+            st.corpse_detection.selected_corpse_id = nil
+            st.corpse_detection.dtimer = nil -- Force reset timer
+        end
+    end
+
+    -- 3. Register State
+    active_states[id] = {
+        type = "panic",
+        end_time = time_global() + (duration or 5000),
+        target_vid = vid,
+        path_set = true, -- Marked as set since we did it above
+        data = {
+            danger_obj = danger_obj,
+            forced = true
+        }
+    }
+    
+    -- Reset combat ticks
+    battle_ticks[id] = 0
+    
+    -- Force sight reset
+    npc:set_sight(look.cur_dir, nil, 0)
+    
+   end
+
+-- ==============================================================================================
+-- LOGIC UPDATES
+-- ==============================================================================================
+
+-- Specific update logic for PANIC state
+local function update_panic_logic(npc, state_data)
+    local id = npc:id()
+    
+    -- Check Expiration
+    if time_global() > state_data.end_time then
+        -- FINISH: Clear state and restore combat
+        active_states[id] = nil
+        
+        if npc:best_enemy() then 
+            npc:enable_memory_object(npc:best_enemy(), true) 
+        end
+        
+               return
+    end
+    
+    -- Check arrival at cover (stop running if reached)
+    if state_data.target_vid then
+        local current_vid = npc:level_vertex_id()
+        local target_pos = level.vertex_position(state_data.target_vid)
+        local dist = npc:position():distance_to(target_pos)
+        
+        if current_vid == state_data.target_vid or dist < 1.5 then
+            -- Arrived at cover: crouch and wait
+            npc:set_movement_type(move.stand)
+            npc:set_body_state(move.crouch)
+            state_data.arrived = true
+            return
+        end
+    end
+    
+    -- Enforce State (Active Panic, still running)
+    if not state_data.arrived then
+        -- Assert parameters (Mental/Move only)
+        local mental = anim.panic
+        if siski_ef_utils.can_panic and not siski_ef_utils.can_panic(npc) then
+            mental = anim.danger -- Fallback
+        end
+
+        pcall(function()
+            npc:set_mental_state(mental)
+            npc:set_movement_type(move.run)
+        end)
+        
+        if not state_data.path_set and state_data.target_vid then
+            -- Set path ONCE. Resetting destination every frame causes "stuttering"
+            npc:set_path_type(game_object.level_path)
+            npc:set_dest_level_vertex_id(state_data.target_vid)
+            state_data.path_set = true
+        end
+    end
+end
+
+-- Generic State Processor
+local function process_active_state(npc)
+    local id = npc:id()
+    local state = active_states[id]
+    if not state then return end
+    
+
+    
+    if state.type == "panic" then
+        update_panic_logic(npc, state)
+    elseif state.type == "crouch" then
+        if time_global() > state.end_time then
+            active_states[id] = nil
+            -- Reset state?
+            npc:set_body_state(move.standing)
+            return
+        end
+        npc:set_body_state(move.crouch)
+        
+    elseif state.type == "cover" or state.type == "flank" then
+        if time_global() > state.end_time then
+            active_states[id] = nil
+            return
+        end
+        
+        -- Move to target
+        if not state.path_set and state.target_vid then
+             npc:set_path_type(game_object.level_path)
+             npc:set_detail_path_type(move.line)
+             npc:set_dest_level_vertex_id(state.target_vid)
+             npc:set_movement_type(move.run)
+             state.path_set = true
+        end
+        
+        -- Check arrival
+        if npc:level_vertex_id() == state.target_vid or npc:position():distance_to(level.vertex_position(state.target_vid)) < 1.0 then
+             active_states[id] = nil -- Arrived
+        end
+    elseif state.type == "disarm" then
+        -- Simple expiry
+        if time_global() > state.end_time then
+            active_states[id] = nil
+        end
+    end
+end
+
+-- ==============================================================================================
+-- AGGRESSION & REFLEXES (Tuning)
+-- ==============================================================================================
+
+local function tune_npc_reflexes(npc)
+    if not get_config("ef_aggression_enabled", true) then return end
+    
+    local id = npc:id()
+    -- [PROTECTION] If NPC is in any active Siski state (Panic, Flank, etc.), skip reflexes
+    if active_states[id] then return end
+
+    local enemy = npc:best_enemy()
+    if not siski_ef_utils.is_alive(enemy) then return end
+    
+    local wpn = npc:best_weapon()
+    if not (wpn and IsWeapon(wpn)) then return end
+
+    -- [PROTECTION] Do not interrupt critical engine animations (Reload, Misfire)
+    local wpn_state = wpn:get_state()
+    if wpn_state == 2 or wpn_state == 3 then -- 2=eReload, 3=eMisfire
+        return 
+    end
+
+    -- 1. Force Aim Time (Engine parameter)
+    local target_aim_time = get_config("ef_aim_time", 0)
+    npc:aim_time(wpn, target_aim_time)
+
+    -- 2. Combat FOV Boost
+    if get_config("ef_forced_fov_enabled", true) then
+        npc:set_fov(get_config("ef_forced_fov_value", 140))
+    end
+
+    -- 3. Near Awareness & Forced Aggression
+    local dist = npc:position():distance_to(enemy:position())
+    
+    -- Force engine to notice enemies at point-blank range
+    if get_config("ef_near_awareness_enabled", true) then
+        local threshold = get_config("ef_near_awareness_dist", 7.0)
+        if dist < threshold and not npc:see(enemy) then
+             npc:make_object_visible_somewhen(enemy)
+        end
+    end
+
+    if npc:see(enemy) then
+        -- [NEW] Execution of wounded enemies
+        if get_config("ef_execution_enabled", true) and IsWounded(enemy) then
+             npc:set_sight(look.fire_point, enemy:position())
+             npc:set_mental_state(anim.danger)
+             -- Continuous fire until dead
+             npc:set_item(object.fire1, wpn, 1, 1000)
+             return -- Priority handled
+        end
+
+        -- [NEW] Forced Tracking for enemies in close range
+        local track_dist = get_config("ef_near_track_dist", 5.0)
+        if dist < track_dist then
+             npc:set_sight(look.fire_point, enemy:position())
+             npc:set_mental_state(anim.danger)
+        end
+
+        local chance = get_config("ef_aggro_fire_chance", 25)
+        
+        -- Scale aggression: NPCs react faster/harder if enemy is close
+        if dist < 10 then chance = chance * 1.5 end
+        if dist < 5 then chance = chance * 2.0 end
+
+        if math.random(100) <= chance then
+             -- Raised weapon and pointing at target
+             npc:set_sight(look.fire_point, enemy:position())
+             npc:set_mental_state(anim.danger)
+             
+             if math.random(100) > 50 then
+                 -- Force a burst
+                 npc:set_item(object.fire1, wpn, math.random(2, 4), math.random(100, 300))
+             else
+                 -- Just raise and let engine (reflexes-boosted) decide
+                 npc:set_item(object.aim1, wpn)
+             end
+        end
+    end
+end
+
+
+-- ==============================================================================================
+-- DISPATCHERS
+-- ==============================================================================================
+
+local function on_npc_hit(npc, amount, local_direction, who, bone_index)
+    if not npc then return end
+    -- [OFFLINE/DEAD RESTRICTION] Ignore offline or dead NPCs
+    if not (npc.online and siski_ef_utils.is_alive(npc)) then return end
+    -- Only apply events to stalkers, not mutants
+    if not IsStalker(npc) then return end
+    
+    -- Scope Check: Only work in meaningful battles
+    if not is_meaningful_battle(npc) then return end
+    
+    
+    local source = "unknown"
+    
+    if who then
+        if who:id() == AC_ID then source = "actor"
+        elseif IsStalker(who) then source = "stalker"
+        elseif IsMonster(who) then source = "monster"
+        end
+    end
+    
+    local context = { source = source, amount = amount }
+    
+    -- Check Events (Priority Order) - with MCM enable checks
+    
+    local ef_ai_active = get_config("ef_enhanced_ai_enabled", true)
+    
+    if can_trigger_event(npc, "disarm", source) then
+        if Events.Disarm:on_hit(npc, context) then return end
+    end
+    -- Rage/Crouch are distinct/cinematic, allowing them alongside AI (or maybe disable Crouch?)
+    -- Crouch is "Survival", so `siski_ef_cover` might handle it better.
+    -- Let's allow Disarm/Ambush always.
+    
+    if not ef_ai_active then
+        -- Legacy Hit Reactions (only if Enhanced AI is OFF)
+        if can_trigger_event(npc, "panic", source) then
+            if Events.Panic:on_hit(npc, context) then return end
+        end
+        if can_trigger_event(npc, "crouch", source) then
+            if Events.Crouch:on_hit(npc, context) then return end
+        end
+        if can_trigger_event(npc, "cover", source) then
+            if Events.Cover:on_hit(npc, context) then return end
+        end
+        if can_trigger_event(npc, "flank", source) then
+            if Events.Flank:on_hit(npc, context) then return end
+        end
+    end
+end
+
+local function on_npc_update(npc)
+    -- [OFFLINE/DEAD RESTRICTION] Ignore offline or dead NPCs
+    if not (npc and npc.online and siski_ef_utils.is_alive(npc)) then return end
+    -- Only apply events to stalkers, not mutants
+    if not IsStalker(npc) then return end
+    
+    -- [NEW] High Priority Grenade Panic (Priority 1)
+    -- This MUST be checked before the battle scope, so neutral NPCs also flee!
+    local danger = siski_ef_utils.safe_best_danger(npc)
+    if danger then
+        local d_type = danger:type()
+        -- 0 is typically grenade/explosion in engine
+        if d_type == danger_object.grenade or d_type == 0 then
+            local d_obj = danger:object() or danger:perpetrator()
+            if d_obj then
+                local dist = npc:position():distance_to(d_obj:position())
+                if dist < 15 then
+                    force_panic_state(npc, d_obj, 5000) -- Flee for 5 seconds
+                    return -- Exit update immediately to start fleeing
+                end
+            end
+        end
+    end
+    
+    -- Scope Check: Only work in meaningful battles (Allow finishing active states)
+    local id = npc:id()
+    if not active_states[id] and not is_meaningful_battle(npc) then 
+        -- Cleanup forced states if they just recently left battle
+        if battle_ticks[id] then
+            npc:set_fov(90)
+            battle_ticks[id] = nil
+        end
+        return 
+    end
+
+
+    -- 3. Process Active State (The Core Logic)
+    if active_states[id] then
+        process_active_state(npc)
+        return -- Busy, don't trigger new things
+    end
+    
+    -- 2. Register Combatant
+    local best_enemy = npc:best_enemy()
+    if best_enemy then
+        -- Check validity of enemy object (fix for CSciptEntity crash)
+        if siski_ef_utils.is_alive(best_enemy) then
+            CombatManager:register(npc)
+            CombatManager:register(best_enemy)
+            
+            -- 3. Battle Tick
+            local now = time_global()
+            if not battle_ticks[id] or (now - battle_ticks[id]) > 1000 then
+                battle_ticks[id] = now
+                
+                local ef_ai_active = get_config("ef_enhanced_ai_enabled", true)
+                
+                -- ENHANCED AI INTEGRATION
+                if ef_ai_active then
+                    -- Lazy resolve (loads after this module alphabetically)
+                    if not enhanced_ai then
+                        enhanced_ai = siski_epic_fight_enhanced_ai
+                    end
+                    if enhanced_ai and enhanced_ai.update then
+                        enhanced_ai.update(npc)
+                    end
+                    -- Skip legacy Panic/Cover/Grenade logic as Enhanced AI handles them
+                else
+                    -- LEGACY LOGIC
+                    if can_trigger_event(npc, "panic", nil) then
+                        if Events.Panic:on_tick(npc) then return end
+                    end
+                    
+                    -- GRENADE TICK (Per-NPC cooldown checked inside)
+                    if can_trigger_event(npc, "grenade", nil) then
+                        if Events.Grenade:on_tick(npc) then return end
+                    end
+                    
+                    -- Cover/Flank logic was mostly hit-based, but could be added here if legacy is on
+                end
+            end
+            
+            -- TUNE REFLEXES (Every Update)
+            tune_npc_reflexes(npc)
+        end
+    end
+end
+
+
+
+-- ==============================================================================================
+-- CALLBACKS & PATCHES
+-- ==============================================================================================
+
+local function on_enemy_eval(obj, enemy, flags)
+    if not obj then return end
+    local state = active_states[obj:id()]
+    if state then
+        -- Only Ignore Enemies if Panicked or Disarmed
+        -- Tactical states (Cover, Grenade, Flank, Crouch) MUST keep enemy memory to fight!
+        if state.type == "panic" or state.type == "disarm" then
+            flags.override = true
+            flags.result = false
+        end
+    end
+end
+
+local function on_danger_eval(obj, flags)
+    if not obj then return end
+    local state = active_states[obj:id()]
+    if state then
+        if state.type == "panic" or state.type == "disarm" then
+            flags.ret_value = false
+        end
+    end
+end
+
+
+local last_cleanup_time = 0
+
+local function on_actor_update()
+    if not db.actor then return end
+    CombatManager:tick() -- Run the director
+    
+    -- Ambush logic (now handled via on_hit callback)
+    
+    local now = time_global()
+    if now - last_cleanup_time > 60000 then
+        last_cleanup_time = now
+        for id, time in pairs(battle_ticks) do
+             if now - time > 10000 then battle_ticks[id] = nil end
+        end
+    end
+end
+
+function on_game_start()
+    -- Resolve enhanced_ai ref now that all modules are loaded
+    enhanced_ai = siski_epic_fight_enhanced_ai
+
+    -- xlibs: subscribe to AlifePlus elite events (if xlibs present)
+    -- Marks high-kill NPCs so tactical_brain can treat them as aggressive elites
+    if siski_ef_utils and siski_ef_utils.init_elite_tracking then
+        siski_ef_utils.init_elite_tracking()
+    end
+
+    RegisterScriptCallback("npc_on_hit_callback", on_npc_hit)
+    RegisterScriptCallback("actor_on_update", on_actor_update)
+    RegisterScriptCallback("npc_on_update", on_npc_update)
+    RegisterScriptCallback("on_enemy_eval", on_enemy_eval)
+    RegisterScriptCallback("npc_on_eval_danger", on_danger_eval)
+    
+    -- Anomaly cache will be handled on first update if needed
+    
+    -- Ensure Global Settings on Load
+    RegisterScriptCallback("actor_on_first_update", function()
+        get_console():execute("ai_die_in_anomaly 1")
+    end)
+
+	RegisterScriptCallback("npc_on_before_hit", function(npc, s_hit, bone_id, flags)
+        -- Anomaly Protection (Integrated)
+        -- DODANO: Sprawdzenie czy anomaly_handler nie jest nilem ORAZ czy posiada funkcję npc_on_before_hit
+        if anomaly_handler and anomaly_handler.npc_on_before_hit and get_config("ef_enhanced_ai_enabled", true) then
+             anomaly_handler.npc_on_before_hit(npc, s_hit, bone_id, flags)
+        end
+    end)
+
+    RegisterScriptCallback("npc_on_death_callback", function(npc, who)
+        if not npc then return end
+        local id = npc:id()
+        -- Cleanup all state tables
+        active_states[id] = nil
+        cooldowns[id] = nil
+        battle_ticks[id] = nil
+        grenade_cooldowns[id] = nil
+        force_grenade_npcs[id] = nil
+
+        -- xlibs: clear elite tracking entry for this NPC
+        if siski_ef_utils and siski_ef_utils.clear_ef_elite then
+            siski_ef_utils.clear_ef_elite(id)
+        end
+
+        -- Enhanced AI Cleanup
+        if enhanced_ai and enhanced_ai.on_death then
+            enhanced_ai.on_death(npc, who)
+        end
+    end)
+
+    
+    -- Monkey Patch Combat Ignore
+    -- SETUP: Combat Ignore Patch
+    if xr_combat_ignore and xr_combat_ignore.is_enemy then
+        if not xr_combat_ignore.is_enemy_patched then
+            local original = xr_combat_ignore.is_enemy
+            xr_combat_ignore.is_enemy = function(obj, enemy, no_memory)
+                if obj and obj.id then
+                    local s = active_states[obj:id()] 
+                    if s and (s.type == "panic" or s.type == "disarm") then return false end
+                end
+                if enemy and enemy.id then
+                    local s = active_states[enemy:id()]
+                    if s and (s.type == "panic" or s.type == "disarm") then return false end
+                end
+                return original(obj, enemy, no_memory)
+            end
+            xr_combat_ignore.is_enemy_patched = true
+        end
+    end
+
+    -- Monkey Patch Weapon Jam
+    -- [NEW] Disable NPC weapon jamming if enabled in MCM
+    if xr_weapon_jam and get_config("ef_no_jam_enabled", true) then
+        xr_weapon_jam.npc_on_update = function() end
+           end
+
+    
+    -- Setup Global AI Settings
+    get_console():execute("ai_die_in_anomaly 1")
+   
+end
+
+-- siski_ef_doctrine_overlay is now a disabled stub (see that file for details)
