@@ -584,7 +584,8 @@ local function npc_on_hear_callback(npc, who_id, s_type, dist, sound_power, soun
 
 		-- Multipliers
 		local rank_mult = get_npc_sound_rank(npc)
-		local type_mult = npc_sound_awareness_type["special"] or 1.0
+		local type_key = sound_type_to_vkey[s_type] or "special"
+		local type_mult = npc_sound_awareness_type[type_key] or 1.0
 
 		local weather_factor, is_foggy, is_raining, is_storm = get_weather_mult("sound_weather_enabled", "sound_weather_mult") or 0.0
 
@@ -727,11 +728,11 @@ local function npc_on_death_callback(npc,who)
 end
 
 local function npc_on_hit_callback(npc,amount,local_direction,who,bone_index)
-	if (bone_index == "from_death_callback") then
-		return
-	end
-
-	set_script_danger(npc,7000,who_id,who and vector():set(who:position()))
+    if (bone_index == "from_death_callback") then
+        return
+    end
+    local who_id = who and who:id()
+    set_script_danger(npc,7000,who_id,who and vector():set(who:position()))
 end
 
 local function get_rand_vertex(npc,vo)
@@ -842,12 +843,12 @@ local function is_danger(npc,best_danger,script)
 		and ((is_alert_active and best_danger:object():id() == db.actor:id()) or npc:relation(best_danger_object) >= 2)) then
 		return false
 	elseif (npc:has_info("npcx_is_companion")) then
-		if best_danger_object:id() ~= db.actor:id() then
-			return false
-		end
-		if npc:relation(best_danger_object) >= 2 or npc:relation(best_danger_object) < 2 then
-			return false
-		end
+    if best_danger_object:id() ~= db.actor:id() then
+        return false
+    end
+    if npc:relation(best_danger_object) >= game_object.neutral then
+        return false
+    end
 		if not (best_danger_object and (IsMonster(best_danger_object) or IsStalker(best_danger_object)) and npc:relation(best_danger_object) >= 2) then
 			return false
 		end
