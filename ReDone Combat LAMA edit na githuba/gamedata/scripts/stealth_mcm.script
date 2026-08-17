@@ -1,0 +1,280 @@
+-- If you don't use MCM, change your defaults from here.
+
+-- FIX: this table must exist because every other file in the mod calls
+-- stealth_mcm.get_config(...) as a dot-qualified lookup on a global table
+-- named "stealth_mcm". Without this declaration, "stealth_mcm" is nil and
+-- every one of those ~110 call sites (many at module load time) throws
+-- "attempt to index a nil value (global 'stealth_mcm')".
+stealth_mcm = stealth_mcm or {}
+
+local defaults = {
+	-- STEALTH
+	["stealth_tab/memory"] = 1,
+	["stealth_tab/luminocity"] = 1,
+	["stealth_tab/distance"] = 1,
+	["stealth_tab/velocity"] = 1,
+	["stealth_tab/weight"] = 1,
+	["stealth_tab/crouch"] = 0.3,
+	["stealth_tab/low_crouch"] = 0.15,
+	["stealth_tab/nvg_val"] = 1,
+	["stealth_tab/icon"] = false,
+	["stealth_tab/icon_type"] = 1,
+	["stealth_tab/icon_x"] = 970,
+	["stealth_tab/icon_y"] = 650,
+	-- PANIC
+	["panic_tab/enable_npc_flee"] = true,
+	["panic_tab/enable_npc_panic"] = true,
+	["panic_tab/enable_squad_panic"] = true,
+	["panic_tab/npc_flee_hp"] = 0.6,
+	["panic_tab/threshold_mult"] = 1.25,
+	["panic_tab/companion_pwr"] = 5,
+	["panic_tab/enemies_pwr_mult"] = 1,
+	["panic_tab/friends_pwr_mult"] = 1,
+	["panic_tab/enemies_radius"] = 125,
+	["panic_tab/friends_radius"] = 70,
+	["panic_tab/enemies_upd_radius"] = 35,
+	["panic_tab/friends_upd_radius"] = 35,
+	["panic_tab/start_flee_time"] = 7,
+	["panic_tab/flee_protection_time"] = 12,
+	["panic_tab/cancel_on_hit"] = true,
+	["panic_tab/hits_to_cancel"] = 3,
+	["panic_tab/flee_smart_min_dist"] = 90,
+	["panic_tab/cover_time"] = 12,
+	["panic_tab/smoke_enabled"] = false,
+	-- COMBAT
+	["combat_tab/combat_tab_settings/redone_ai_wpn"] = true,
+	["combat_tab/combat_tab_settings/redone_ai_danger"] = true,
+	["combat_tab/combat_tab_settings/redone_ai_target"] = true,
+	["combat_tab/combat_tab_settings/redone_ai_aim"] = true,
+	["combat_tab/combat_tab_settings/enable_ai_headlight"] = true,
+	["combat_tab/combat_tab_settings/enable_ai_medkit"] = true,
+	["combat_tab/combat_tab_settings/enable_ai_suicide"] = true,
+	["combat_tab/combat_tab_settings/enable_xr_meet"] = false,
+	["combat_tab/combat_tab_settings/redone_ai_detection"] = true,
+	["combat_tab/combat_tab_settings/detection_Sniper_combat"] = true,
+	["combat_tab/combat_tab_settings/detection_foggy_combat"] = true,
+	["combat_tab/combat_tab_settings/detection_rank_enabled"] = true,
+	["combat_tab/combat_tab_settings/detection_rank_mult"] = 1.0,
+	["combat_tab/combat_tab_settings/detection_weather_enabled"] = true,
+	["combat_tab/combat_tab_settings/detection_weather_mult"] = 1.0,
+	["combat_tab/combat_tab_settings/redone_ai_sound"] = true,
+	["combat_tab/combat_tab_settings/sound_combat_enabled"] = true,
+	["combat_tab/combat_tab_settings/sound_limit"] = 2.0,
+	["combat_tab/combat_tab_settings/sound_DNG_mult"] = 2.5,
+	["combat_tab/combat_tab_settings/sound_WPN_mult"] = 2.0,
+	["combat_tab/combat_tab_settings/sound_MST_mult"] = 1.5,
+	["combat_tab/combat_tab_settings/sound_ITM_mult"] = 1.0,
+	["combat_tab/combat_tab_settings/sound_rank_enabled"] = true,
+	["combat_tab/combat_tab_settings/sound_rank_mult"] = 1.0,
+	["combat_tab/combat_tab_settings/sound_weather_enabled"] = true,
+	["combat_tab/combat_tab_settings/sound_weather_mult"] = 1.0,
+	-- MODE
+	["combat_tab/combat_tab_mode/behavior_mode"] = 1,
+	["combat_tab/combat_tab_mode/aggression_mode"] = 2,
+	["combat_tab/combat_tab_mode/enable_ai_combat"] = true,
+	["combat_tab/combat_tab_mode/enable_ai_cover"] = true,
+	["combat_tab/combat_tab_mode/enable_ai_sprint"] = true,
+	["combat_tab/combat_tab_mode/enable_ai_prone"] = true,
+	["combat_tab/combat_tab_mode/enable_ai_wounds"] = true,
+	["combat_tab/combat_tab_mode/wounded_mode"] = 2,
+	--PATCH
+	--["patch_tab/mora_npc_amnesia"]
+	["patch_tab/mora_combat_ignore"] = false,
+	["patch_tab/michiko_patch"] = false,
+	--DEBUG
+	["debug_tab/debugx"] = false,
+	["debug_tab/flee_dbg"] = false,
+	["debug_tab/debug_alert"] = false,
+	["debug_tab/debug_aim"] = false,
+	["debug_tab/debug_medkit"] = false,
+	["debug_tab/debug_movement"] = false,
+	["debug_tab/debug_detection"] = false,
+	["debug_tab/debug_sound"] = false,
+	["debug_tab/debug_meta"] = 1,
+	["debug_tab/debug_enemy"] = 1,
+	["debug_tab/debug_danger"] = 1,
+}
+
+local key_to_tab = {}
+
+local function build_key_map()
+	for full_path, _ in pairs(defaults) do
+		local tab, key = full_path:match("(.+)%/(.+)")
+		if tab and key then key_to_tab[key] = tab end
+	end
+end
+
+function stealth_mcm.get_config(key)
+	if not next(key_to_tab) then build_key_map() end
+	local tab = key_to_tab[key]
+	if not tab then return nil end
+	if ui_mcm then
+		local val = ui_mcm.get("stealth/" .. tab .. "/" .. key)
+		if val ~= nil then return val end
+	end
+	return defaults[tab .. "/" .. key]
+end
+
+function on_mcm_load()
+	local op = {id = "stealth", gr = {
+		{id = "stealth_tab", sh = true, gr = {
+			{id = "title",			type = "slide", link = "ui_options_slider_player",text="ui_mcm_stealth_title",size = {512,50},spacing = 20},		
+			{id = "title" ,			type = "title", text = "ui_mcm_stealth_header_main", size = {512,50}, spacing = 20},
+			{id = "memory", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 1},
+			{id = "luminocity", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 1},
+			{id = "distance", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 1},
+			{id = "velocity", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 1},
+			{id = "weight", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 1},
+			{id = "crouch", 		type = "track", val = 2, min = 0.05, max = 1, step = 0.05, def = 0.3},
+			{id = "low_crouch", 		type = "track", val = 2, min = 0.05, max = 1, step = 0.05, def = 0.15},
+			{id = "nvg_val", 		type = "track", val = 2, min = 0, max = 3, step = 0.05, def = 1},
+			{id = "title",			type = "title" ,text = "ui_mcm_stealth_header_hud", size = {512,50}, spacing = 20},
+			{id = "icon", 			type = "check", val = 1, def = false},
+			{id = "icon_type", 		type = "list", val= 2, def = 1, content= { {1, "Light indicator"} , {2, "NPC vision"}} , no_str = true},
+			{id = "icon_x", 		type = "input", val = 2, min = 0, max = 1000, def = 970},
+			{id = "icon_y", 		type = "input", val = 2, min = 0, max = 1000, def = 650},
+			{id = "title",			type = "title" ,text= "", size = {512,50}, spacing = 20},
+			}
+		},
+		{id = "panic_tab", sh = true, gr = {
+			{id = "title",			type = "slide", link = "ui_options_slider_mask",text = "ui_mcm_npc_flee_title", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "title", text = "ui_mcm_npc_flee_header_main", size = {512,50}, spacing = 20},
+			{id = "enable_npc_flee", 	type = "check", val = 1, def = true},
+			{id = "title",			type = "title" ,text= "", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "title", text = "ui_mcm_npc_panic_header_main", size = {512,50}, spacing = 20},
+			{id = "enable_npc_panic", 	type = "check", val = 1, def = true},
+			{id = "enable_squad_panic", 	type = "check", val = 1, def = true},
+			{id = "title",			type = "title" ,text= "", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "desc", text = "ui_mcm_npc_flee_header_hp", align = "l", clr = {255,60,190,190}},
+			{id = "npc_flee_hp", 		type = "track", val = 2, min = 0.5, max = 1, step = 0.01, def = 0.6},
+			{id = "title",			type = "title" ,text= "", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "desc", text = "ui_mcm_npc_flee_header_power", align = "l", clr = {255,60,190,190}},
+			{id = "threshold_mult", 	type = "track", val = 2, min = 1.15, max = 2, step = 0.05, def = 1.25},
+			{id = "companion_pwr", 		type = "track", val = 2, min = 1, max = 50, step = 0.5, def = 5},
+			{id = "enemies_pwr_mult", 	type = "track", val = 2, min = 0.25, max = 3, step = 0.25, def = 1},
+			{id = "friends_pwr_mult", 	type = "track", val = 2, min = 0.25, max = 3, step = 0.25, def = 1},
+			{id = "title",			type = "title" ,text = "", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "desc", text = "ui_mcm_npc_flee_header_dist_before", align= "l", clr = {255,60,190,190}},
+			{id = "enemies_radius", 	type = "track", val = 2, min = 30, max = 240, step = 5, def = 125},
+			{id = "friends_radius", 	type = "track", val = 2, min = 30, max = 240, step = 5, def = 70},
+			{id = "title",			type = "title" ,text = "", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "desc", text = "ui_mcm_npc_flee_header_dist_after", align= "l", clr = {255,60,190,190}},
+			{id = "enemies_upd_radius", 	type = "track", val = 2, min = 10, max = 100, step = 5, def = 35},
+			{id = "friends_upd_radius", 	type = "track", val = 2, min = 10, max = 100, step = 5, def = 35},
+			{id = "title" ,			type = "title" ,text = "", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "desc", text = "ui_mcm_npc_flee_header_others", align= "l", clr = {255,60,190,190}},
+			{id = "start_flee_time", 	type = "track", val = 2, min = 0, max = 20, step = 1, def = 7},
+			{id = "flee_protection_time",   type = "track", val = 2, min = 0, max = 30, step = 1, def = 12},
+			{id = "cancel_on_hit", 		type = "check", val = 1, def = true},
+			{id = "title" ,			type = "title" ,text = "", size = {512,50}, spacing = 20},
+			{id = "hits_to_cancel", 	type = "track", val = 2, min = 1, max = 7, step = 1, def = 3},
+			{id = "flee_smart_min_dist", 	type = "track", val = 2, min = 50, max = 200, step = 5, def = 90},
+			{id = "cover_time", 		type = "track", val = 2, min = 0, max = 25, step = 1, def = 12},
+			{id = "title",			type = "title" ,text = "", size = {512,50}, spacing = 20},
+			{id = "smoke_enabled", 		type = "check", val = 1, def = false},
+			{id = "title",			type = "title" ,text = "", size = {512,50}, spacing = 20},
+			}
+		},
+		{id= "combat_tab", text="ui_mcm_menu_combat_tab", gr = {
+			{id= "combat_tab_settings", sh = true, text = "ui_mcm_menu_combat_tab_settings", gr = {
+				{id = "title", 				type = "slide", link = "ui_options_slider_gameplay_diff", text = "ui_mcm_combat_title", size = {512,50}, spacing = 20},
+                                {id = "title", 				type = "title", text = "ui_mcm_combat_header_main", size = {512,50}, spacing = 20},
+                                {id = "redone_ai_wpn", 			type = "check", val = 1, def = true},
+                                {id = "redone_ai_target", 		type = "check", val = 1, def = true},
+                                {id = "redone_ai_danger", 		type = "check", val = 1, def = true},
+                                {id = "redone_ai_aim", 			type = "check", val = 1, def = true},
+                                {id = "title", 				type = "title", text = "ui_mcm_combat_header_main2", size = {512,50}, spacing = 20},
+                                {id = "enable_ai_headlight", 		type = "check", val = 1, def = true},
+                                {id = "enable_ai_medkit", 		type = "check", val = 1, def = true},
+                                {id = "enable_ai_suicide", 		type = "check", val = 1, def = true},
+                                {id = "enable_xr_meet", 		type = "check", val = 1, def = false},
+                                {id = "title", 				type = "slide", link = "ui_options_slider_disguise", text = "ui_mcm_detection_settings_title", size = {512,50}, spacing = 20},
+                                {id = "redone_ai_detection", 		type = "check", val = 1, def = true},
+                                {id = "detection_Sniper_combat", 	type = "list", val= 2, def = 1, content= { {1, "Enable Sniper Detection"} , {2, "Disable Sniper Detection"}} , no_str = true},
+                                {id = "detection_foggy_combat", 	type = "list", val= 2, def = 1, content= { {1, "Enable Fog Detection"} , {2, "Disable Fog Detection"}} , no_str = true},
+                                {id = "title",				type = "title", text = "", size = {512,50}, spacing = 20},
+                                {id = "detection_rank_enabled", 	type = "check", val = 1, def = true},
+                                {id = "detection_rank_mult", 		type = "track", val = 2, min = 0.1, max = 2, step = 0.1, def = 1},
+                                {id = "title",				type = "title", text = "", size = {512,50}, spacing = 20},
+                                {id = "detection_weather_enabled",	type = "check", val = 1, def = true},
+                                {id = "detection_weather_mult", 	type = "track", val = 2, min = 0.1, max = 2, step = 0.1, def = 1},
+                                {id = "title", 				type = "slide", link = "ui_options_slider_sound", text = "ui_mcm_sound_settings_title", size = {512,50}, spacing = 20},
+                                {id = "redone_ai_sound", 		type = "check", val = 1, def = true},
+                                {id = "sound_combat_enabled", 		type = "list",  val = 2, def = 1, content= { {1, "Enable In Combat Sound"} , {2, "Disable In Combat Sound"}} , no_str = true},
+                                {id = "sound_limit", 			type = "track", val = 2, min = 0.5, max = 3, step = 0.1, def = 2},
+                                {id = "title",				type = "title", text = "", size = {512,50}, spacing = 20},
+                                {id = "sound_DNG_mult", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 2.5},
+                                {id = "sound_WPN_mult", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 2},
+                                {id = "sound_MST_mult", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 1.5},
+                                {id = "sound_ITM_mult", 		type = "track", val = 2, min = 0.1, max = 3, step = 0.1, def = 1},
+                                {id = "title",				type = "title", text = "", size = {512,50}, spacing = 20},
+                                {id = "sound_rank_enabled", 		type = "check", val = 1, def = true},
+                                {id = "sound_rank_mult", 		type = "track", val = 2, min = 0.1, max = 2, step = 0.1, def = 1},
+                                {id = "title",				type = "title", text = "", size = {512,50}, spacing = 20},
+                                {id = "sound_weather_enabled", 		type = "check", val = 1, def = true},
+                                {id = "sound_weather_mult", 		type = "track", val = 2, min = 0.1, max = 2, step = 0.1, def = 1},
+                                {id = "title",				type = "title", text = "", size = {512,50}, spacing = 20},
+				}
+			},
+			{id = "combat_tab_mode", text = "ui_mcm_menu_combat_tab_mode", sh = true, gr = { 
+				{id = "title",			type = "slide", link= "ui_options_slider_hud", text = "ui_mcm_combat_mode_header_main", size = {512,50}, spacing = 20},
+                                {id = "title",			type = "title", text= "ui_mcm_combat_mode_selection_header", size = {512,50}, spacing = 20},
+				{id = "behavior_mode",		type = "radio_v", val = 2, def = 1,
+					hint = "behavior_mode",
+					content = {{1, "behavior_mode_cinema"},{2, "behavior_mode_vanilla"},}
+				}, --no_str = true
+				{id = "title",			type= "title", text= "", size = {512,50}, spacing = 20},
+				{id = "aggression_mode",	type = "radio_v", val = 2, def = 2,
+					hint = "aggression_mode",
+					content = {{1, "aggression_aggressive"},{2, "aggression_balanced"},{3, "aggression_defensive"},}
+				}, --no_str = true
+                                {id = "title",			type = "title", text= "ui_mcm_movement_mode_selection_header", size = {512,50}, spacing = 20},
+                                {id = "enable_ai_combat", 	type = "check", val = 1, def = true},
+                                {id = "enable_ai_cover", 	type = "check", val = 1, def = true},
+                                {id = "enable_ai_prone", 	type = "check", val = 1, def = true},
+                                {id = "enable_ai_sprint", 	type = "check", val = 1, def = true},
+				{id = "title",	 	  	type = "title", text= "", size = {512,50}, spacing = 20},
+                                {id = "title",			type = "title", text= "ui_mcm_wounded_mode_selection_header", size = {512,50}, spacing = 20},
+                                {id = "enable_ai_wounds", 	type = "check", val = 1, def = true},
+				{id = "wounded_mode",		type = "radio_v", val = 2, def = 2,
+					hint = "wounded_mode",
+					content = {{1, "wounded_resilient"},{2, "wounded_balanced"},{3, "wounded_vulnerable"},}
+				}, --no_str = true
+				{id = "title",	 	  	type= "title", text= "", size = {512,50}, spacing = 20},
+				}
+			},
+			},
+		},
+		{id = "patch_tab", sh = true, gr = {
+			{id = "title", 			type = "slide", link = "ui_options_slider_control", text = "ui_mcm_patch_title" ,size = {512,50}, spacing = 20},
+			{id = "title",			type = "title", text = "ui_mcm_mora_npc_amnesia_info", size = {10,5}, spacing = 0.01},
+			{id = "mora_combat_ignore", 	type = "check", val = 1, def = false},
+			{id = "michiko_patch", 		type = "check", val = 1, def = false},
+			}
+		},
+		{id = "debug_tab", sh = true, gr = {
+			{id = "title", 			type = "slide", link = "ui_options_slider_news", text = "ui_mcm_debug_title" ,size = {512,50}, spacing = 20},
+			{id = "title", 			type = "title", text = "ui_mcm_dubug_stealth_header_main", size = {512,50}, spacing = 20},
+			{id = "debugx", 		type = "check", val = 1, def = false},
+			{id = "title", 			type = "title", text = "ui_mcm_dubug_panic_header_main", size = {512,50}, spacing = 20},
+			{id = "flee_dbg", 		type = "check", val = 1, def = false},
+			{id = "title",	 	  	type = "title", text= "", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "title", text = "ui_mcm_dubug_combat_debug_header_main", size = {512,50}, spacing = 20},
+			{id = "debug_alert", 		type = "check", val = 1, def = false},
+			{id = "debug_aim", 		type = "check", val = 1, def = false},
+			{id = "debug_medkit", 		type = "check", val = 1, def = false},
+			{id = "debug_movement", 	type = "check", val = 1, def = false},
+			{id = "debug_detection", 	type = "check", val = 1, def = false},
+			{id = "debug_sound", 		type = "check", val = 1, def = false},
+			{id = "title",	 	  	type = "title", text= "", size = {512,50}, spacing = 20},
+			{id = "title", 			type = "title", text = "ui_mcm_dubug_combat_debug_header_enemy_id", size = {512,50}, spacing = 20},
+			{id = "debug_meta", 		type = "list",  val = 2, def = 1, content= { {1, "Disable Meta Debug ID"} , {2, "Enable Meta Debug Clean ID"}, {3, "Enable Meta Debug Raw ID"}} , no_str = true},
+			{id = "debug_enemy", 		type = "list",  val = 2, def = 1, content= { {1, "Disable Enemy Debug ID"} , {2, "Enable Enemy Debug Clean ID"}, {3, "Enable Enemy Debug Raw ID"}} , no_str = true},
+			{id = "debug_danger", 		type = "list",  val = 2, def = 1, content= { {1, "Disable Danger Debug ID"} , {2, "Enable Danger Debug Clean ID"}, {3, "Enable Danger Debug Raw ID"}} , no_str = true},
+			{id = "title",	 	  	type = "title", text= "", size = {512,50}, spacing = 20},
+			}
+		}
+		}
+	}
+	return op
+end

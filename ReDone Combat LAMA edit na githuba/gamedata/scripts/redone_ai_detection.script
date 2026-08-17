@@ -1,0 +1,562 @@
+--[[----------------------------------------------------------------------------------------------------------
+        RE:DONE AI DETECTION
+------------------------------------------------------------------------------------------------------------]]
+local db = db
+local level = level
+local time_global = time_global
+-------------------------------
+local DEBUG_DETECTION_ON  = stealth_mcm.get_config("debug_detection")
+local redone_ai_detection = stealth_mcm.get_config("redone_ai_detection")
+local detection_rank_enabled     = stealth_mcm.get_config("detection_rank_enabled")
+local detection_rank_mult        = stealth_mcm.get_config("detection_rank_mult")
+local detection_weather_enabled  = stealth_mcm.get_config("detection_weather_enabled")
+local detection_weather_mult     = stealth_mcm.get_config("detection_weather_mult")
+--------------------------------------
+local redone_ai_sound = stealth_mcm.get_config("redone_ai_sound")
+local sound_WPN_mult = stealth_mcm.get_config("sound_WPN_mult")
+local sound_MST_mult = stealth_mcm.get_config("sound_MST_mult")
+local sound_ITM_mult = stealth_mcm.get_config("sound_ITM_mult")
+local sound_DNG_mult = stealth_mcm.get_config("sound_DNG_mult")
+--------------------------------------
+local function in_combat_sound_enabled() return stealth_mcm.get_config("sound_combat_enabled") == 1 end
+--------------------------------------
+local sound_limit           = stealth_mcm.get_config("sound_limit")
+local sound_rank_enabled    = stealth_mcm.get_config("sound_rank_enabled")
+local sound_rank_mult       = stealth_mcm.get_config("sound_rank_mult")
+local sound_weather_enabled = stealth_mcm.get_config("sound_weather_enabled")
+local sound_weather_mult    = stealth_mcm.get_config("sound_weather_mult")
+
+DEBUG = false
+-------------------------------------------------------------------------------
+-- NPC BASE DATA
+-------------------------------------------------------------------------------
+local npc_base_dist = {
+        ["novice"]       = {sneak = 8,  walk = 10, run = 12, sprint = 18, torch_day = 24, torch_night = 42},
+        ["trainee"]      = {sneak = 8,  walk = 10, run = 12, sprint = 18, torch_day = 24, torch_night = 42},
+        ["experienced"]  = {sneak = 10, walk = 12, run = 14, sprint = 20, torch_day = 26, torch_night = 44},
+        ["professional"] = {sneak = 10, walk = 12, run = 14, sprint = 20, torch_day = 26, torch_night = 44},
+        ["expert"]       = {sneak = 12, walk = 14, run = 16, sprint = 22, torch_day = 28, torch_night = 46},
+        ["veteran"]      = {sneak = 12, walk = 14, run = 16, sprint = 22, torch_day = 28, torch_night = 46},
+        ["master"]       = {sneak = 14, walk = 16, run = 18, sprint = 24, torch_day = 30, torch_night = 48},
+        ["legend"]       = {sneak = 14, walk = 16, run = 18, sprint = 24, torch_day = 30, torch_night = 48},
+        ["special"]      = {sneak = 12, walk = 16, run = 24, sprint = 32, torch_day = 24, torch_night = 34}
+}
+
+local npc_detection_rank = {
+        ["novice"]  = 0.70, ["trainee"] = 0.80, ["experienced"] = 0.90, ["professional"] = 1.00,
+        ["expert"]  = 1.10, ["veteran"] = 1.20, ["master"]      = 1.35, ["legend"]       = 1.50,
+        ["special"] = 1.00
+}
+
+local npc_sound_rank = {
+        ["novice"]  = 0.95, ["trainee"] = 1.05, ["experienced"] = 1.15, ["professional"] = 1.25,
+        ["expert"]  = 1.35, ["veteran"] = 1.45, ["master"]      = 1.55, ["legend"]       = 1.65,
+        ["special"] = 1.15
+}
+
+local sound_type_to_vkey = {
+        ["WPN_shoot"]  = "wpn_shoot",  ["WPN_reload"] = "wpn_reload", ["WPN_empty"] = "wpn_empty",
+        ["WPN_hit"]    = "wpn_hit",    ["WPN_show"]   = "wpn_show",   ["WPN_hide"]  = "wpn_hide",
+        ["MST_attack"] = "mst_attack", ["MST_damage"] = "mst_damage", ["MST_step"]  = "mst_step",
+        ["MST_talk"]   = "mst_talk",   ["MST_die"]    = "mst_die",    ["MST_eat"]   = "mst_eat",
+        ["ITM_pckup"]  = "itm_pckup",  ["ITM_drop"]   = "itm_drop",   ["ITM_hide"]  = "itm_hide",
+        ["ITM_take"]   = "itm_take",   ["ITM_use"]    = "itm_use"
+}
+
+local npc_sound_type = {
+        ["WPN_shoot"]  = 1.8, ["WPN_reload"] = 0.6, ["WPN_empty"] = 0.6,
+        ["WPN_hit"]    = 1.2, ["WPN_show"]   = 0.6, ["WPN_hide"]  = 0.6,
+        ["MST_attack"] = 1.0, ["MST_damage"] = 0.9, ["MST_step"]  = 1.0,
+        ["MST_talk"]   = 0.8, ["MST_die"]    = 0.8, ["MST_eat"]   = 0.5,
+        ["ITM_pckup"]  = 0.5, ["ITM_drop"]   = 0.4, ["ITM_hide"]  = 0.4,
+        ["ITM_take"]   = 0.5, ["ITM_use"]    = 0.5, ["Special"]   = 1.0
+}
+
+local npc_weather_factors = {
+        ["clear"] = 1.0, ["rain"] = 0.8, ["storm"] = 0.6, ["foggy"] = 0.9
+}
+
+------------------------------------------------------------------------------
+-- RANK UTILS
+------------------------------------------------------------------------------
+function get_npc_rank_key(npc)
+        if not npc or not npc:alive() then return "novice" end
+        if not IsStalker(npc) then return "special" end
+
+        local comm = npc:character_community()
+        if not comm then return "special" end
+        if comm == "zombied" then return "special" end
+
+        local rank_name = ranks and ranks.get_obj_rank_name and ranks.get_obj_rank_name(npc)
+        if not rank_name or rank_name == "" then return "special" end
+
+        return rank_name
+end
+
+------------------------------------------------------------------------------
+-- WEATHER UTILS
+------------------------------------------------------------------------------
+function get_weather_factors(enabled_key)
+        local enabled = false
+
+        if enabled_key == "detection_weather_enabled" then
+                enabled = detection_weather_enabled
+
+        elseif enabled_key == "sound_weather_enabled" then
+                enabled = sound_weather_enabled
+        end
+
+        if not enabled then
+                return npc_weather_factors.clear, false, false, false
+        end
+
+        local weather_manager =
+                level_weathers
+                and level_weathers.get_weather_manager
+                and level_weathers.get_weather_manager()
+                or nil
+
+        local curr_weather = weather_manager and weather_manager:get_curr_weather_preset() or ""
+        local rain_factor = level.rain_factor() or 0
+
+        local is_foggy = false
+        local is_raining = false
+        local is_storm = false
+
+        local weather_factor = npc_weather_factors.clear
+        local w = string.lower(tostring(curr_weather))
+
+        if string.find(w, "foggy", 1, true) then
+                is_foggy = true
+                weather_factor = npc_weather_factors.foggy
+
+        elseif string.find(w, "storm", 1, true) then
+                is_storm = true
+                is_raining = true
+                weather_factor = npc_weather_factors.storm
+
+        elseif string.find(w, "rain", 1, true) then
+                is_raining = true
+                weather_factor = npc_weather_factors.rain
+
+        else
+                if rain_factor >= 0.75 then
+                        is_storm = true
+                        is_raining = true
+                        weather_factor = npc_weather_factors.storm
+                elseif rain_factor >= 0.1 then
+                        is_raining = true
+                        weather_factor = npc_weather_factors.rain
+                end
+        end
+
+        if DEBUG then
+                utils_data.debug_write(string.format("[WTH] %.2f f:%s r:%s s:%s",
+                        weather_factor,
+                        tostring(is_foggy),
+                        tostring(is_raining),
+                        tostring(is_storm)
+                ))
+        end
+
+        return weather_factor, is_foggy, is_raining, is_storm
+end
+
+function get_weather_mult(enabled_key, mcm_key)
+        local weather_factor, is_foggy, is_raining, is_storm = get_weather_factors(enabled_key)
+
+        local mcm_mult = 1.0
+
+        if mcm_key == "detection_weather_mult" then
+                mcm_mult = detection_weather_mult or 1.0
+
+        elseif mcm_key == "sound_weather_mult" then
+                mcm_mult = sound_weather_mult or 1.0
+        end
+
+        local final_mult = weather_factor * mcm_mult
+
+        if DEBUG then utils_data.debug_write(string.format("[WTHM] %.2f", final_mult)) end
+        return final_mult, is_foggy, is_raining, is_storm
+end
+
+------------------------------------------------------------------------------
+-- DETECTION UTILS
+------------------------------------------------------------------------------
+function get_npc_detection_values(npc)
+        local key = get_npc_rank_key(npc)
+        local base_dist_vals = npc_base_dist[key] or npc_base_dist["special"]
+
+        local rank_enabled = detection_rank_enabled
+        local mcm_mult = detection_rank_mult
+
+        if not rank_enabled then
+                local neutral_mult = 0.55
+                return neutral_mult, base_dist_vals
+        end
+
+        local rank_mult = npc_detection_rank[key] or 1.0
+        local final_rank_mult = rank_mult * mcm_mult
+
+        local scaled_base_dist_vals = {}
+        for k, v in pairs(base_dist_vals) do
+                scaled_base_dist_vals[k] = (type(v) == "number") and (v * mcm_mult) or v
+        end
+
+        if DEBUG then utils_data.debug_write(string.format("[DET] %.2f", final_rank_mult)) end
+        return final_rank_mult, scaled_base_dist_vals
+end
+
+local function is_valid_detection_npc(npc)
+        if not npc or not npc:alive() then return false end
+        if not IsStalker(npc) or IsWounded(npc) then return false end
+        if character_community(npc) == "zombied" then return false end
+
+        return true
+end
+
+------------------------------------------------------------------------------
+-- SOUND UTILS
+------------------------------------------------------------------------------
+function get_npc_sound_values(npc)
+        if not npc or not npc:alive() then return 1.0 end
+        if not IsStalker(npc) then return 1.0 end
+        if not sound_rank_enabled then return 1.0 end
+
+        local key = get_npc_rank_key(npc)
+        local base = npc_sound_rank[key] or 1.0
+        local mcm = sound_rank_mult or 1.0
+
+        return base * mcm
+end
+
+function get_type_multiplier(s_type)
+        if not redone_ai_sound then return 1.0 end
+        if not s_type then return 1.0 end
+
+        local type_mult =
+                npc_sound_type[s_type]
+                or (sound_type_to_vkey[s_type] and npc_sound_type[sound_type_to_vkey[s_type]])
+                or npc_sound_type["Special"]
+                or 1.0
+
+        return type_mult
+end
+
+function get_noise_limit()
+        if not in_combat_sound_enabled() then return 1.0 end
+        return sound_limit or 1.0
+end
+
+function get_sound_noises(npc, weather_factor, s_type)
+        if not in_combat_sound_enabled() then return 0 end
+        if not npc or not npc:alive() then return 0 end
+        if not s_type then return 0 end
+
+        local base_noise_value = 45
+
+        local rank_mult = get_npc_sound_values(npc) or 1.0
+        local type_mult = get_type_multiplier(s_type) or 1.0
+        local weather_mult = get_weather_mult("sound_weather_enabled", "sound_weather_mult") or 1.0
+
+        local speed = get_actor_speed() or 0
+        local speed_factor = 1 + speed * 0.25
+
+        local weight_ratio = get_actor_weight_ratio() or 0
+        local weight_factor = 1 + weight_ratio * 0.15
+
+        local base_noise =
+                base_noise_value
+                * rank_mult
+                * type_mult
+                * speed_factor
+                * weight_factor
+                * weather_mult
+
+        local mcm = get_noise_limit()
+        local noise_radius = base_noise * mcm
+
+        if DEBUG then utils_data.debug_write(string.format("[SND] %.1f", base_noise)) end
+        return noise_radius
+end
+
+------------------------------------------------------------------------------
+-- ACTOR UTILS
+------------------------------------------------------------------------------
+function get_actor_speed()
+        if not db.actor then return 0 end
+
+        local pos = db.actor:position()
+        local time = time_global()
+        if not last_actor_pos or not last_update_time then
+                last_actor_pos = pos
+                last_update_time = time
+                return 0
+        end
+
+        local dist = pos:distance_to(last_actor_pos)
+        local delta = (time - last_update_time) / 200
+
+        last_actor_pos = pos
+        last_update_time = time
+
+        if delta <= 0 then return 0 end
+
+        local speed = dist / delta
+        if speed < 0.1 then return 0 end
+
+        if DEBUG then utils_data.debug_write(string.format("[SPD] %.2f", speed)) end
+        return speed
+end
+
+function get_actor_weight_ratio()
+        if not db.actor then return 0 end
+
+        local inv_weight = db.actor:get_total_weight()
+        local max_walk_weight = db.actor:get_actor_max_walk_weight()
+        local free_weight = 0.35 * max_walk_weight
+
+        local ratio = (inv_weight > free_weight)
+            and ((inv_weight - free_weight) / (max_walk_weight - free_weight)) or 0
+        if inv_weight > max_walk_weight then
+                ratio = 1.0 + ((inv_weight - max_walk_weight) / 5.0) * 0.1
+        else
+                ratio = math.min(math.max(ratio, 0), 1)
+        end
+
+        if DEBUG then utils_data.debug_write(string.format("[WEIGHT] %.2f", ratio)) end
+        return ratio
+end
+
+function actor_has_light_source()
+        if not db.actor then return false end
+        local torch = db.actor:item_in_slot(10)
+        local flash = db.actor:item_in_slot(9)
+
+        local actor_torch_on = torch and torch:torch_enabled()
+        local actor_flash_on = flash
+        and flash:section() == "device_flashlight"
+        and db.actor:active_detector()
+
+        return actor_torch_on or actor_flash_on
+end
+
+function actor_is_flanking(npc, actor)
+        local npc_dir = npc:direction()
+        local to_actor = vector():set(actor:position())
+        to_actor:sub(npc:position())
+        to_actor:normalize()
+
+        local dot = npc_dir:dotproduct(to_actor)
+        if dot < 0.1 then return true end
+
+        return false
+end
+
+----------------------------------------------------------------------------
+-- FIX (v2 - corrects a mistake in the first attempt below): get_npc_sound_values/
+-- get_type_multiplier/get_weather_mult/get_sound_noises/actor_is_flanking are
+-- called dot-qualified (redone_ai_detection.X) from xr_danger.script and
+-- redone_ai_schemes.script. No "redone_ai_detection" table ever existed there,
+-- so those call sites threw "attempt to index a nil value (global
+-- 'redone_ai_detection')".
+--
+-- IMPORTANT: this file itself declares "local redone_ai_detection =
+-- stealth_mcm.get_config('redone_ai_detection')" near the top (an MCM on/off
+-- boolean, unrelated to the table) - that local shadows the name for the
+-- entire rest of this file. A bare "redone_ai_detection = redone_ai_detection
+-- or {}" here does NOT create a global; it just reassigns that same local
+-- boolean, so ".get_npc_sound_values = ..." below it then tried to index a
+-- boolean and crashed with "attempt to index local 'redone_ai_detection' (a
+-- boolean value)" at load time - worse than the original bug, since now the
+-- whole file failed to load instead of just failing on the individual calls.
+-- Using _G explicitly bypasses the local and writes the actual global table
+-- that xr_danger.script/redone_ai_schemes.script (which have no such local)
+-- read.
+--
+-- Also correcting a mistake in my earlier comment here: the "if not
+-- redone_ai_detection then return end" guard inside npc_on_update below
+-- checks that SAME local MCM boolean (correctly - it's the intended
+-- "is this feature enabled" toggle, defaulting to true), not this table. It
+-- was never related to this bug and does not need to change.
+----------------------------------------------------------------------------
+_G.redone_ai_detection = _G.redone_ai_detection or {}
+_G.redone_ai_detection.get_npc_sound_values = get_npc_sound_values
+_G.redone_ai_detection.get_type_multiplier  = get_type_multiplier
+_G.redone_ai_detection.get_weather_mult     = get_weather_mult
+_G.redone_ai_detection.get_sound_noises     = get_sound_noises
+_G.redone_ai_detection.actor_is_flanking    = actor_is_flanking
+
+----------------------------------------------------------------------------
+-- NPC ON UPDATE
+----------------------------------------------------------------------------
+local UPDATE_INTERVAL = 500
+local npc_next_update = {}
+local npc_next_detection_time = {}
+
+local function npc_on_update(npc)
+        if not redone_ai_detection then return end
+        if not is_valid_detection_npc(npc) then return end
+        if not db.actor then return end
+
+        local id = npc:id()
+        local current_time = time_global()
+
+        if not npc_next_update[id] then
+                npc_next_update[id] = current_time
+                npc_next_detection_time[id] = 0
+        end
+
+        if current_time < npc_next_update[id] then return end
+        npc_next_update[id] = current_time + UPDATE_INTERVAL
+
+        local actor_pos = db.actor:position()
+        local npc_pos = npc:position()
+        local dist = npc_pos:distance_to(actor_pos)
+
+        if dist > 50 then return end
+
+        local hrs = level.get_time_hours() + level.get_time_minutes() / 60
+        local is_night = (hrs >= 21 or hrs < 5)
+        local time_factor = is_night and 0.8 or 1.0
+
+        local actor_has_torch = actor_has_light_source()
+
+        local speed = get_actor_speed()
+        local weight_ratio = get_actor_weight_ratio()
+        local weight_mult = 1.0 + weight_ratio * 0.4
+
+        --DEBUG: actor weight
+        --[[if weight_ratio > 0.8 then
+                utils_data.debug_write("[DETECTION] Actor is heavily loaded: " .. tostring(weight_ratio))
+        else
+                utils_data.debug_write("[DETECTION] Actor is light: " .. tostring(weight_ratio))
+        end]]--
+
+        local rank_mult, base_dist_vals = get_npc_detection_values(npc)
+        local weather_strength, is_foggy, is_raining, is_storm = get_weather_mult("detection_weather_enabled", "detection_weather_mult")
+
+        local dist_sneak  = base_dist_vals.sneak  * rank_mult * time_factor * weather_strength * weight_mult
+        local dist_walk   = base_dist_vals.walk   * rank_mult * time_factor * weather_strength * weight_mult
+        local dist_run    = base_dist_vals.run    * rank_mult * time_factor * weather_strength * weight_mult
+        local dist_sprint = base_dist_vals.sprint * rank_mult * time_factor * weather_strength * weight_mult
+
+        local dist_torch_day   = base_dist_vals.torch_day * rank_mult
+        local dist_torch_night = base_dist_vals.torch_night * rank_mult
+        local dist_weather     = base_dist_vals.run * rank_mult * time_factor * weather_strength
+
+        -- Detection Checks
+        local tg = current_time
+        if tg < (npc_next_detection_time[id] or 0) then return end
+        local cooldown = 1200
+        if speed > 0.24 then
+                cooldown = 800
+        elseif speed > 0.36 then
+                cooldown = 1000
+        else
+                cooldown = 1500
+        end
+
+        npc_next_detection_time[id] = tg + cooldown
+
+        -- SNEAK
+        if speed > 0.0 and speed <= 0.29 and dist < dist_sneak then
+                --npc:make_object_visible_somewhen(db.actor)
+                if DEBUG_DETECTION_ON then utils_data.debug_write(string.format("[DETECTION] ACTOR SNEAKING (%.2f m/s)", speed)) end
+        -- SNEAK\WALK
+        elseif speed > 0.30 and speed <= 0.34 and dist < dist_walk then
+                --npc:make_object_visible_somewhen(db.actor)
+                if DEBUG_DETECTION_ON then utils_data.debug_write(string.format("[DETECTION] ACTOR SNEAK_WALKING (%.2f m/s)", speed)) end
+        -- RUN
+        elseif speed > 0.34 and speed <= 0.74 and dist < dist_run then
+                npc:make_object_visible_somewhen(db.actor)
+                if DEBUG_DETECTION_ON then utils_data.debug_write(string.format("[DETECTION] ACTOR RUNNING (%.2f m/s)", speed)) end
+        -- SPRINT
+        elseif speed > 0.74 and dist < dist_sprint then
+                npc:make_object_visible_somewhen(db.actor)
+                if DEBUG_DETECTION_ON then utils_data.debug_write(string.format("[DETECTION] ACTOR SPRINT (%.2f m/s)", speed)) end
+        end
+
+        -- WEATHER
+        if is_storm and dist < dist_weather and speed > 0.74 then
+		if DEBUG_DETECTION_ON then utils_data.debug_write(string.format(
+			"[DETECTION][WEATHER] STORM detected dist=%.2f speed=%.2f",dist, speed))
+		end
+                npc:make_object_visible_somewhen(db.actor)
+        elseif (is_foggy or is_raining) and dist < dist_weather and speed > 0.34 then
+                npc:make_object_visible_somewhen(db.actor)
+		if DEBUG_DETECTION_ON then utils_data.debug_write(string.format(
+			"[DETECTION][WEATHER] RAIN/FOG detected dist=%.2f speed=%.2f",dist, speed))
+		end
+        end
+
+        -- DEVICE
+        if actor_has_torch and not is_night and dist < dist_torch_day then
+                npc:make_object_visible_somewhen(db.actor)
+		if DEBUG_DETECTION_ON then utils_data.debug_write(string.format(
+			"[DETECTION][DEVICE] TORCH DAY detected dist=%.2f",dist))
+		end
+
+        elseif actor_has_torch and is_night and dist < dist_torch_night then
+                npc:make_object_visible_somewhen(db.actor)
+		if DEBUG_DETECTION_ON then utils_data.debug_write(string.format(
+			"[DETECTION][DEVICE] TORCH NIGHT detected dist=%.2f",dist))
+		end
+        end
+
+        -- COMBAT (disabled) TODO: Get it work x)
+        --[[if speed > 0.5 then
+                local enemy = db.actor or npc:best_enemy()
+                if enemy and enemy:alive() then
+                        local dist = npc:position():distance_to(enemy:position())
+
+                            utils_data.debug_write(string.format("[DETECTION] COMBAT detection (%.2f m/s)", speed))
+                        end
+                end
+        end]]--
+end
+
+-----------------------------------------------------------------------------
+-- ON OPTION CHANGE
+-----------------------------------------------------------------------------
+-- FIX: was a bare global, colliding with the identically-named on_option_change
+-- in 7 other files - only whichever file loaded last would actually run when
+-- RegisterScriptCallback("on_option_change", on_option_change) fired, meaning
+-- the other 7 files' own debug-flag/config refresh never executed on an MCM
+-- option change. Made local since nothing calls it dot-qualified from any
+-- other file - RegisterScriptCallback works the same with a local reference.
+local function on_option_change()
+        DEBUG_DETECTION_ON        = stealth_mcm.get_config("debug_detection")
+        redone_ai_detection       = stealth_mcm.get_config("redone_ai_detection")
+        detection_rank_enabled    = stealth_mcm.get_config("detection_rank_enabled")
+        detection_rank_mult       = stealth_mcm.get_config("detection_rank_mult")
+        detection_weather_enabled = stealth_mcm.get_config("detection_weather_enabled")
+        detection_weather_mult    = stealth_mcm.get_config("detection_weather_mult")
+        redone_ai_sound           = stealth_mcm.get_config("redone_ai_sound")
+        sound_WPN_mult            = stealth_mcm.get_config("sound_WPN_mult")
+        sound_MST_mult            = stealth_mcm.get_config("sound_MST_mult")
+        sound_ITM_mult            = stealth_mcm.get_config("sound_ITM_mult")
+        sound_DNG_mult            = stealth_mcm.get_config("sound_DNG_mult")
+        sound_limit               = stealth_mcm.get_config("sound_limit")
+        sound_rank_enabled        = stealth_mcm.get_config("sound_rank_enabled")
+        sound_rank_mult           = stealth_mcm.get_config("sound_rank_mult")
+        sound_weather_enabled     = stealth_mcm.get_config("sound_weather_enabled")
+        sound_weather_mult        = stealth_mcm.get_config("sound_weather_mult")
+end
+
+-----------------------------------------------------------------------------
+-- ON GAME START
+-----------------------------------------------------------------------------
+-- FIX: modules.script's dispatcher now calls redone_ai_detection.on_game_start()
+-- (registered via the new LoadScheme(...) line in modules.script). Was a bare
+-- global, colliding with the identically-named on_game_start in 12 other files.
+-- Using _G explicitly here for the same reason as the table declaration above -
+-- the local "redone_ai_detection" MCM-toggle boolean (line 9) shadows the bare
+-- name in this file, so a plain "function redone_ai_detection.on_game_start()"
+-- would try to index that local boolean instead of the real global table.
+function _G.redone_ai_detection.on_game_start()
+        on_option_change()
+
+        RegisterScriptCallback("npc_on_update", npc_on_update)
+        RegisterScriptCallback("on_option_change", on_option_change)
+end

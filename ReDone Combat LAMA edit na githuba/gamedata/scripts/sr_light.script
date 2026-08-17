@@ -1,0 +1,248 @@
+--[[----------------------------------------------------------------------------------------------------------
+	SR LIGHT
+------------------------------------------------------------------------------------------------------------]]
+
+local light_zones = {}
+--------------------------------------
+local redone_ai_headlight = stealth_mcm.get_config("enable_ai_headlight")
+--------------------------------------
+local indoor_levels = {
+	labx8			= true,
+	jupiter_underground 	= true,
+
+	-- Call of Chernobyl
+	l03u_agr_underground 	= true,
+	l04u_labx18 		= true,
+	l08u_brainlab 		= true,
+	l10u_bunker 		= true,
+	l12u_sarcofag 		= true,
+	l12u_control_monolith 	= true,
+	l13u_warlab 		= true
+}
+-----------------------------------------------------------------------------
+-- ACTION LIGHT
+-----------------------------------------------------------------------------
+class "action_light"
+
+function action_light:__init (obj, storage)
+	self.object = obj
+	self.st = storage
+	self.active = false
+	self.id = obj:id()
+end
+
+function action_light:reset_scheme()
+	light_zones[self.id] = self
+end
+
+function action_light:update(delta)
+	if xr_logic.try_switch_to_another_section(self.object, self.st, db.actor) then
+		self.active = false
+		light_zones[self.id] = nil
+		return
+	end
+	self.active = true
+end
+
+function action_light:check_stalker(stalker)
+	if self.active == false then
+		return false, false
+	end
+
+	if self.object:inside(stalker:position()) then
+		return self.st.light, true
+	end
+
+	return false, false
+end
+
+-----------------------------------------------------------------------------
+-- BINDER LIGHT
+-----------------------------------------------------------------------------
+-- FIX: xr_logic.script dispatches these two as sr_light.add_to_binder(...) and
+-- sr_light.set_scheme(...) for the "sr_light" scheme (LoadScheme("sr_light",
+-- "sr_light",stype_restrictor) in modules.script). Both were bare globals,
+-- colliding with the identically-named add_to_binder (12 other files) and
+-- set_scheme (axr_beh, xr_cover, xr_smartcover) elsewhere in the mod. Neither
+-- is called bare anywhere in this file, so renaming is safe.
+function sr_light.add_to_binder(npc, ini, scheme, section, storage)
+--'	printf("DEBUG: add_to_binder: scheme='%s', section='%s'", scheme, section)
+	local new_action = action_light (npc, storage)
+	xr_logic.subscribe_action_for_events(npc, storage, new_action)
+end
+
+function sr_light.set_scheme(npc, ini, scheme, section, gulag_name)
+	local st = xr_logic.assign_storage_and_bind(npc, ini, scheme, section)
+	st.logic = xr_logic.cfg_get_switch_conditions(ini, section, npc)
+	st.light = ini:r_bool_ex(section,"light_on",false)
+end
+
+-----------------------------------------------------------------------------
+-- FIX: stealth_nvg.script monkey-patches this function - it does
+-- "scuffed_sr_light_patch = sr_light.check_light" (save original) then
+-- redefines "function sr_light.check_light(npc)" (wrap it) so it can call
+-- the saved original from inside its own NVG logic. Both of those lines
+-- are dot-qualified on a global table named "sr_light", which never
+-- existed, so stealth_nvg.script's monkey-patch itself crashed at load
+-- time with "attempt to index a nil value (global 'sr_light')" before
+-- the NVG wrapper could even be installed. Nothing calls check_light bare
+-- anywhere in the mod, so it's safe to rename directly instead of aliasing.
+-----------------------------------------------------------------------------
+sr_light = sr_light or {}
+function sr_light.check_light(stalker)
+	local st = db.storage[stalker:id()]
+	local tg = time_global()
+	if (st.srlight_timer and tg < st.srlight_timer) then
+		return
+	end
+	st.srlight_timer = tg + 2000 + math.random(100)
+
+	local torch = stalker:object("device_torch")
+
+	-- Stalker dead or sleep animstate; release torch
+	local anm = state_mgr.get_state(stalker)
+	if (not stalker:alive() or anm == "zat_b106_wounded_idle" or anm == "sleep" or anm == "play_guitar" or string.find(anm,"animpoint") or string.find(anm,"sneak")) then
+		if torch then
+			if (torch:attachable_item_enabled()) then
+				torch:enable_attachable_item(false)
+			end
+
+			local se_torch = alife_object(torch:id())
+			if se_torch then
+				alife_release(se_torch)
+			end
+		end
+		return
+	end
+
+	-- Stalker in danger mode; release torch
+	if (st.danger_flag) then
+		if not redone_ai_headlight then return end
+		if torch then
+			if (torch:attachable_item_enabled()) then
+				torch:enable_attachable_item(false)
+			end
+
+			local se_torch = alife_object(torch:id())
+			if se_torch then
+				alife_release(se_torch)
+			end
+		end
+		return
+	end
+
+	-- Non-headlamp scheme in use; release torch
+	local scheme = st.active_scheme
+	if (scheme == "kamp" or scheme == "camper" or scheme == "sleeper") then
+		if torch then
+			if (torch:attachable_item_enabled()) then
+				torch:enable_attachable_item(false)
+			end
+
+			local se_torch = alife_object(torch:id())
+			if se_torch then
+				alife_release(se_torch)
+			end
+		end
+		return
+	end
+
+	-- Stalker has enemy and is not underground; release torch
+	if (stalker:best_enemy() and not indoor_levels[level.name()]) then
+		if torch then
+			if not redone_ai_headlight then return end
+			if (torch:attachable_item_enabled()) then
+				torch:enable_attachable_item(false)
+			end
+
+			local se_torch = alife_object(torch:id())
+			if se_torch then
+				alife_release(se_torch)
+			end
+		end
+		return
+	end
+
+	-- Daytime and place condition
+	local forced, light = false, false
+	for k,v in pairs(light_zones) do
+		light, forced = v:check_stalker(stalker)
+		if forced == true then
+			break
+		end
+	end
+
+	if not forced then
+		local htime = level.get_time_hours()
+		--if htime <= 4 or htime >= 20 then
+		if htime >= 21 or htime < 5 then
+			light = true
+		end
+		if light == false then
+			if indoor_levels[level.name()] == true then
+				light = true
+			end
+		end
+	end
+
+	if (light) then
+		if (torch) then
+			if not (torch:attachable_item_enabled()) then
+				torch:enable_attachable_item(true)
+			end
+		else
+			alife_create_item("device_torch", stalker)
+		end
+	else
+		if torch and alife_object(torch:id()) then
+			if (torch:attachable_item_enabled()) then
+				torch:enable_attachable_item(false)
+			end
+			alife_release_id(torch:id())
+		end
+	end
+
+	if (stalker:has_info("npcx_is_companion")) then
+		if (stalker:has_info("npcx_beh_substate_stealth")) then
+			if torch then
+				if (torch:attachable_item_enabled()) then
+					torch:enable_attachable_item(false)
+				end
+				local se_torch = alife_object(torch:id())
+				if se_torch then
+					alife_release(se_torch)
+				end
+			end
+		end
+	end
+end
+
+function clean_up ()
+	for k,v in pairs(light_zones) do
+		light_zones[k] = nil
+	end
+end
+
+-----------------------------------------------------------------------------
+-- ON OPTION CHANGE
+-----------------------------------------------------------------------------
+-- FIX: was a bare global, colliding with the identically-named on_option_change
+-- in 7 other files. Made local.
+local function on_option_change()
+	redone_ai_headlight = stealth_mcm.get_config("enable_ai_headlight")
+end
+
+-----------------------------------------------------------------------------
+-- ON GAME START
+-----------------------------------------------------------------------------
+-- FIX: modules.script's central dispatcher calls sr_light.on_game_start() for
+-- every registered scheme (LoadScheme("sr_light","sr_light",stype_restrictor)).
+-- This was a bare global, colliding with the identically-named on_game_start in
+-- 12 other files - only whichever file loaded last would ever actually run, and
+-- modules.script's dispatcher (which looks up _G[filename].on_game_start, not
+-- the bare name) couldn't find any of them at all.
+function sr_light.on_game_start()
+	on_option_change()
+
+	RegisterScriptCallback("on_option_change", on_option_change)
+end

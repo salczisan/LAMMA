@@ -1,0 +1,262 @@
+--[[--------------------------------------------------------------------------------------------------------
+       RE:DONE AI AIM
+------------------------------------------------------------------------------------------------------------
+    'Hardcore' values exist for legacy save file compatibility and as default AI aim parameters.
+    They serve as the base for rank and environment multipliers.
+
+    NOTE: Do not enable 'hardcore AI aim' in game settings.
+          It will override these 'hardcore_*' default values entirely.
+------------------------------------------------------------------------------------------------------------]]
+local db = db
+local level = level
+---------------------------
+local last_global_aim_id = nil
+local last_global_set_time = 0
+local NPC_UPDATE_MIN_INTERVAL = 0.5
+local redone_ai_aim = stealth_mcm.get_config("redone_ai_aim")
+local DEBUG_NPC_AIM = stealth_mcm.get_config("debug_aim")
+--------------------------------------------------------------------------
+-- BASE AIM
+--------------------------------------------------------------------------
+local hardcore_max_angle    = 20.0
+local hardcore_min_angle    = 15.0
+local hardcore_min_speed    = 17.0
+local hardcore_predict_time = 0.12
+
+--------------------------------------------------------------------------
+-- RANK MAP
+--------------------------------------------------------------------------
+local rank_map = {
+        [0] = "novice",
+        [1] = "trainee",
+        [2] = "experienced",
+        [3] = "professional",
+        [4] = "veteran",
+        [5] = "expert",
+        [6] = "master",
+        [7] = "legend"
+}
+
+local npc_rank_coeff = {
+        novice       = { angle = 1.3, speed = 0.9,  predict = 0.9  },
+        trainee      = { angle = 1.2, speed = 0.95, predict = 0.95 },
+        experienced  = { angle = 1.1, speed = 1.0,  predict = 1.0  },
+        professional = { angle = 1.0, speed = 1.0,  predict = 1.0  },
+        expert       = { angle = 0.95,speed = 1.05, predict = 1.05 },
+        veteran      = { angle = 0.9, speed = 1.1,  predict = 1.1  },
+        master       = { angle = 0.85,speed = 1.1,  predict = 1.15 },
+        legend       = { angle = 0.8, speed = 1.2,  predict = 1.2  }
+}
+
+--------------------------------------------------------------------------
+-- UTILS
+--------------------------------------------------------------------------
+local function safe_exec(cmd)
+        if level and level.exec_console_cmd then
+                level.exec_console_cmd(cmd)
+        elseif exec_console_cmd then
+                exec_console_cmd(cmd)
+        end
+end
+
+local function clamp(v, a, b)
+        if v ~= v then return a end
+        if v < a then return a end
+        if v > b then return b end
+        return v
+end
+
+local function fmt(v)
+        return string.format("%.6f", tonumber(v) or 0)
+end
+
+--------------------------------------------------------------------------
+-- AIM SYSTEM
+--------------------------------------------------------------------------
+local _last = {}
+
+local function set_aim(max_a, min_a, speed, predict)
+        max_a   = fmt(clamp(max_a, 0, 180))
+        min_a   = fmt(clamp(min_a, 0, 180))
+        speed   = fmt(clamp(speed, 0.001, 31.416))
+        predict = fmt(clamp(predict, 0, 10))
+
+        if _last.max ~= max_a then
+                _last.max = max_a
+                safe_exec("ai_aim_max_angle " .. max_a)
+        end
+
+        if _last.min ~= min_a then
+                _last.min = min_a
+                safe_exec("ai_aim_min_angle " .. min_a)
+        end
+
+        if _last.speed ~= speed then
+                _last.speed = speed
+                safe_exec("ai_aim_min_speed " .. speed)
+        end
+
+        if _last.predict ~= predict then
+                _last.predict = predict
+                safe_exec("ai_aim_predict_time " .. predict)
+        end
+end
+
+--------------------------------------------------------------------------
+-- APPLY RANK AIM
+--------------------------------------------------------------------------
+local function apply_changes_for_npc(npc)
+        if not npc then return end
+
+        local rid = npc.rank and npc:rank() or 3
+        local rname = rank_map[rid] or "professional"
+        local c = npc_rank_coeff[rname] or npc_rank_coeff.professional
+
+        local max_a = hardcore_max_angle * c.angle
+        local min_a = hardcore_min_angle * c.angle
+        if min_a > max_a then min_a = max_a end
+
+        set_aim(
+                max_a,
+                min_a,
+                hardcore_min_speed * c.speed,
+                hardcore_predict_time * c.predict
+        )
+end
+
+--------------------------------------------------------------------------
+-- ACTOR ON UPDATE
+--------------------------------------------------------------------------
+-- FIX: was a bare global, colliding with the identically-named actor_on_update
+-- in stealth_nvg.script - only whichever file loaded last would ever actually
+-- run. Made local.
+local function actor_on_update()
+        set_aim(
+                hardcore_max_angle,
+                hardcore_min_angle,
+                hardcore_min_speed,
+                hardcore_predict_time
+        )
+end
+
+
+
+--------------------------------------------------------------------------
+-- DEBUG
+local function d(...)
+        if DEBUG_NPC_AIM then
+                printf(...)
+        end
+end
+
+--------------------------------------------------------------------------
+-- NPC UPDATE
+--------------------------------------------------------------------------
+-- FIX: was a bare global; not called dot-qualified anywhere (the other files'
+-- npc_on_update are already local). Made local.
+local function npc_on_update(npc)
+        if not redone_ai_aim then return end
+        if not (npc and npc.alive and npc:alive()) then return end
+
+        local enemy = redone_ai_combat.get_combat_enemy(npc)
+        if not (enemy and enemy.alive and enemy:alive()) then return end
+        if not (db.actor and enemy:id() == db.actor:id()) then return end
+        if not (npc.see and npc:see(enemy)) then return end
+
+        local now = time_global() / 1000
+        if (now - last_global_set_time) < NPC_UPDATE_MIN_INTERVAL then return end
+
+        local last_npc = last_global_aim_id and level.object_by_id(last_global_aim_id)
+        if not (last_npc and last_npc.alive and last_npc:alive()) then
+                last_global_aim_id = nil
+        end
+
+        if not last_global_aim_id then
+                apply_changes_for_npc(npc)
+                last_global_aim_id = npc:id()
+                last_global_set_time = now
+                return
+        end
+
+        local last_rank_val = (last_npc.rank and last_npc:rank()) or 3
+        local this_rank_val = (npc.rank and npc:rank()) or 3
+
+        local pos_last  = last_npc:position()
+        local pos_npc   = npc:position()
+        local pos_enemy = enemy:position()
+
+        local last_dist = pos_last:distance_to_sqr(pos_enemy)
+        local dist      = pos_npc:distance_to_sqr(pos_enemy)
+
+        local update_global = false
+
+        if this_rank_val > last_rank_val then
+                update_global = true
+                d("[AIM][DECISION] rank priority update")
+        elseif dist < last_dist then
+                update_global = true
+                d("[AIM][DECISION] distance priority update")
+        end
+
+        if update_global then
+                apply_changes_for_npc(npc)
+                last_global_aim_id = npc:id()
+                last_global_set_time = now
+
+                d("[AIM][APPLY] npc id=%s rank=%s dist_update=%s",
+                        npc:id(),
+                        ranks.get_obj_rank_name(npc),
+                        tostring(dist < last_dist)
+                )
+        end
+end
+
+--------------------------------------------------------------------------
+-- CALLBACKS
+--------------------------------------------------------------------------
+-- FIX: was a bare global; not called dot-qualified anywhere. Made local.
+local function on_level_changing()
+        --(removed environment system)
+end
+
+-- FIX: was a bare global, colliding with the identically-named
+-- actor_on_first_update in redone_npc_fleeing.script, stealth_nvg.script and
+-- visual_memory_manager.script - only whichever file loaded last would ever
+-- actually run. Made local.
+local function actor_on_first_update()
+        set_aim(
+                hardcore_max_angle,
+                hardcore_min_angle,
+                hardcore_min_speed,
+                hardcore_predict_time
+        )
+end
+
+-----------------------------------------------------------------------------
+-- ON OPTION CHANGE
+-----------------------------------------------------------------------------
+-- FIX: was a bare global, colliding with the identically-named on_option_change
+-- in 7 other files. Made local.
+local function on_option_change()
+        redone_ai_aim = stealth_mcm.get_config("redone_ai_aim")
+        DEBUG_NPC_AIM = stealth_mcm.get_config("debug_aim")
+end
+
+--------------------------------------------------------------------------
+-- ON GAME START
+--------------------------------------------------------------------------
+-- FIX: modules.script's dispatcher now calls redone_ai_aim_settings.on_game_start()
+-- (registered via the new LoadScheme(...) line in modules.script). Was a bare
+-- global, colliding with the identically-named on_game_start in 12 other files -
+-- only whichever file loaded last would ever actually run, meaning this file's
+-- entire custom aim system (facer replacement) never got wired up to actual
+-- gameplay events regardless of anything else being correct.
+redone_ai_aim_settings = redone_ai_aim_settings or {}
+function redone_ai_aim_settings.on_game_start()
+        on_option_change()
+
+        RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+        RegisterScriptCallback("actor_on_update", actor_on_update)
+        RegisterScriptCallback("npc_on_update", npc_on_update)
+        RegisterScriptCallback("on_level_changing", on_level_changing)
+end
