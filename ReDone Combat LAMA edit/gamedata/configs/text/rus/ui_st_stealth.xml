@@ -1,0 +1,814 @@
+<?xml version="1.0" encoding="windows-1251"?>
+
+<!-- 
+	MCM
+-->
+<string_table>
+	<!-- MCM MENU -->
+	<string id="ui_mcm_menu_stealth">
+		<text>RE:DONE Combat AI</text>
+	</string>
+
+	<!-- STEALTH -->
+	<string id="ui_mcm_menu_stealth_tab">
+		<text>Stealth</text>
+	</string>
+	<string id="ui_mcm_stealth_title">
+		<text>Stealth</text>
+	</string>
+
+	<string id="ui_mcm_stealth_header_main">
+		<text>Stealth Settings</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_memory">
+		<text>Memory</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_memory_desc">
+		<text>Memory multiplier. (If NPC already saw target then NPC will receive boost to their vision against this target. Decreases with time, with default value of 1.0 it takes around 100 real-life seconds for NPC to drop their boost to 0 against this target) \n 
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_luminocity">
+		<text>Luminosity</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_luminocity_desc">
+		<text>Luminosity multiplier. (Light on object) \n 
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_distance">
+		<text>Distance</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_distance_desc">
+		<text>Distance multiplier. (Distance from object to object, range and fov) \n 
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_velocity">
+		<text>Velocity</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_velocity_desc">
+		<text>Velocity multiplier. (Speed of object) \n 
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_weight">
+		<text>Weight</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_weight_desc">
+		<text>Weight multiplier. (Weight on actor) \n 
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_crouch">
+		<text>Crouch</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_crouch_desc">
+		<text>Crouch multiplier. \n 
+				\n Default: 0.4</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_low_crouch">
+		<text>Low crouch</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_low_crouch_desc">
+		<text>Low crouch multiplier. \n 
+				\n Default: 0.25</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_nvg_val">
+		<text>NPC night vision goggles</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_nvg_val_desc">
+		<text>Makes some NPCs to use NVG instead of headlamp. NVG value is added regardless of distance, unlike headlamp ("0" disables feature). \n 
+				\n Default: 1</text>
+	</string>
+
+		<!-- HUD -->
+	<string id="ui_mcm_stealth_header_hud">
+		<text>HUD</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_icon">
+		<text>Icon</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_icon_desc">
+		<text>Luminosity icon. (Displays light on actor)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_icon_type">
+		<text>Icon Type</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_icon_type_desc">
+		<text>1) "Light indicator" displays amount of light on player. \n \n
+				2) "NPC vision" displays how NPC (with highest vision value on you) see player: \n
+				- White icon: NPC in normal state and does not see player; \n
+				- Yellow icon: NPC is in combat/danger (has boosted vision parameters) and does not see player; \n
+				- Red icon: NPC see player.</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_icon_x">
+		<text>Icon Placement X</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_icon_y">
+		<text>Icon Placement Y</text>
+	</string>
+
+	<!-- COMBAT TAB -->
+	<string id="ui_mcm_menu_combat_tab">
+		<text>Combat AI</text>
+	</string>
+
+	<string id="ui_mcm_menu_combat_tab_settings">
+		<text>Main</text>
+	</string>
+
+	<string id="ui_mcm_combat_title">
+		<text>Combat AI</text>
+	</string>
+
+	<string id="ui_mcm_combat_header_main">
+		<text>Combat AI Settings</text>
+	</string>
+
+	<string id="ui_mcm_combat_header_main2">
+		<text>NPC Settings</text>
+	</string>
+
+	<!-- Alert\Danger -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_danger">
+		<text>Danger Alert</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_danger_desc">
+		<text>Enable the Danger Alert behavior for NPCs. Allows NPCs to react to friendly\hostile dangers. \n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Aim-->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_aim">
+		<text>Rank Aim</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_aim_desc">
+    		<text>Enable the Combat AI Aim, which dynamically adjusts NPC aim angles, speed, and prediction based on conditions, weather, and NPC rank. \n 
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Target -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_target">
+		<text>Target Selection</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_target_desc">
+		<text>Enables modified AI target selection logic. NPCs evaluate enemies using engine best_danger, memory data, and stored enemy state. Affects how combat targets are selected and updated during engagement.
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Weapon -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_wpn">
+		<text>Weapon Selection</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_wpn_desc">
+		<text>Enable NPCs to dynamically switch their weapons. NPCs will choose the most suitable weapon for combat. For example, if an NPC has a shotgun in their inventory, it will be used in close-range fights. \n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Suicide -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_suicide">
+		<text>Suicide</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_suicide_desc">
+		<text>Enable suicide behavior for NPCs of all factions. Triggers when NPC is critically wounded, surrendering, and near a visible enemy. If disabled, only Monolith NPCs follow the original vanilla behavior \n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Medkit -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_medkit">
+		<text>Medkits</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_medkit_desc">
+		<text>Enable NPCs to receive Medkits for use in combat. The number of Medkits is rank-based, with a minimum of 1 and a maximum of 3. WIP \n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Light -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_headlight">
+		<text>Headlights</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_headlight_desc">
+		<text>Disable Headlights in night combat for NPC. \n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- xr_meet -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_xr_meet">
+		<text>Dialogue</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_xr_meet_desc">
+		<text>Prevents NPCs from entering dialogue while they are in combat. \n
+				\n Default: Disabled</text>
+	</string>
+
+	<!-- Detection -->
+	<string id="ui_mcm_detection_settings_title">
+		<text>AI Detection</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_detection">
+		<text>Enable Combat AI Detection</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_detection_desc">
+		<text>Enable NPC detection awareness. NPCs notice the player based on movement speed, carried weight, weather, flashlight use, and their own rank.\n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Detection Foggy Combat -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_foggy_combat">
+		<text>Fog Detection</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_foggy_combat_desc">
+		<text>Enable NPC foggy weather detection in pre-combat. NPCs will not engage in combat unless the distance threshold is reached. WIP.\n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Detection Sniper Combat -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_Sniper_combat">
+		<text>Sniper Detection</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_Sniper_combat_desc">
+		<text>Enable NPC sniper combat detection when the player is using a sniper rifle. NPCs will switch to a camping scheme instead of direct engagement. WIP.\n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Detection Rank-->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_rank_enabled">
+		<text>Rank Modifier</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_rank_enabled_desc">
+		<text>Enable rank-based modifiers for NPC detection checks. \n
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_rank_mult">
+		<text>Rank Amplification</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_rank_mult_desc">
+		<text>Adjusts how much NPC rank affects detection checks. \n
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_weather_enabled">
+		<text>Weather Modifier</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_weather_enabled_desc">
+		<text>Enable weather-based modifiers for NPC detection checks. \n
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_weather_mult">
+		<text>Weather Amplification</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_weather_mult_desc">
+		<text>Adjusts how much weather affects detection checks. \n
+				\n Default: 1.0</text>
+	</string>
+
+	<!-- Sound -->
+	<string id="ui_mcm_sound_settings_title">
+		<text>AI Sound</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_sound">
+		<text>Enable Combat AI Sound</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_sound_desc">
+		<text>Enable NPC sound awareness in pre-combat. NPCs react to player and NPC sounds based on distance, type, weather, rank. Enable in-combat sound to allow NPCs to detect sounds during combat. \n 
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_DNG_mult">
+		<text>Danger</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_DNG_mult_desc">
+		<text>Multiplier for NPC reaction to danger sounds (Weapon shoot\hit. Monster hit\attack). \n
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_WPN_mult">
+		<text>Weapons</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_WPN_mult_desc">
+		<text>Multiplier for NPC reaction to weapon sounds (Weapon empty\reload\swith weapons.) \n
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_MST_mult">
+		<text>NPC\Mutants</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_MST_mult_desc">
+		<text>Multiplier for NPC reaction to mutant sounds or other NPCs (Monster steps\talk\eat.). \n
+				\n Default: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_ITM_mult">
+		<text>Items</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_ITM_mult_desc">
+		<text>Multiplier for NPC reaction to item-related sounds (Item use\pickup\drop). \n
+				\n Default: 1.0</text>
+	</string>
+
+	<!-- Sound Limit-->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_combat_enabled">
+		<text>In Combat Sound</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_combat_enabled_desc">
+		<text>Enable NPCs detect sounds in combat \n 
+				\n Default: Enabled</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_limit">
+		<text>Combat Sound Limit</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_limit_desc">
+		<text>Multiplies NPC base sound detection range in combat. Higher values increase hearing sensitivity, lower values reduce it.\n 
+		 		\n Default: 1.0</text>
+	</string>
+
+	<!-- Sound Rank -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_rank_enabled">
+		<text>Rank Modifier</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_rank_enabled_desc">
+		<text>Enable rank-based modifiers for NPC sound checks. \n
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_rank_mult">
+		<text>Rank Amplification</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_rank_mult_desc">
+		<text>Adjusts how much NPC rank affects sound checks. \n
+				\n Default: 1.0</text>
+	</string>
+
+	<!-- Sound Weather -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_weather_enabled">
+		<text>Weather Modifier</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_weather_enabled_desc">
+		<text>Enable weather-based modifiers for NPC sound detection. \n
+				\n Default: Enabled</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_weather_mult">
+		<text>Weather Amplification</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_weather_mult_desc">
+		<text>Adjusts how much weather affects NPC sound detection. \n
+				\n Default: 1.0</text>
+	</string>
+
+	<!-- MODE -->
+	<string id="ui_mcm_menu_combat_tab_mode">
+		<text>Mode</text>
+	</string>
+
+	<string id="ui_mcm_combat_mode_header_main">
+		<text>AI Mode</text>
+	</string>
+
+	<string id="ui_mcm_combat_mode_selection_header">
+		<text>Combat Mode Selection</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_behavior_mode_lst_behavior_mode_cinema">
+		<text>Cinematic AI Mode</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_behavior_mode_lst_behavior_mode_vanilla">
+		<text>Vanilla AI Mode</text>
+	</string>
+
+	<string id="ui_mcm_behavior_mode">
+		<text>Combat Mode</text>
+	</string>
+	<string id="ui_mcm_behavior_mode_desc">
+		<text>CINEMATIC MODE: This behavior system restricts Combat AI activation to visual contact, preventing NPCs from engaging or maintaining combat states unless they can directly see their target. \n
+				\n NPCs will break out of camping and defensive behavior if they are exposed while lacking visual contact, ensuring consistent and realistic reactions based strictly on line of sight. \n
+         			\n NPC behavior is influenced by distance thresholds, where different ranges control how actively NPCs move and respond; shorter distances result in more dynamic behavior, while longer distances tend to keep NPCs in static or camping states. The player visual contact with the NPCs is requaried for more advanced combat behavior. \n
+        			\n When enabled, Combat AI logic is applied to NPC vs NPC engagements, whereas normally it is limited to player-related combat scenarios. \n
+         			\n This creates more cinematic and immersive encounters, with all combat decisions driven by visibility, distance, and positioning. \n
+				\n VANILLA MODE: Combat AI logic is applied only during Player vs NPC engagements. \n
+				\n NPC vs NPC combat does not use Combat AI behavior, instead relying on more vanilla-like combat with general behavior improvements applied by the Combat AI system. \n
+				\n This keeps NPC interactions simpler while focusing advanced combat logic on the player. \n</text>
+	</string>
+
+		<!-- AGGRESSION -->
+	<string id="ui_mcm_aggression_mode">
+		<text>Aggression Mode</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_aggression_mode_lst_aggression_aggressive">
+		<text>Aggressive</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_aggression_mode_lst_aggression_balanced">
+		<text>Balanced</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_aggression_mode_lst_aggression_defensive">
+		<text>Defensive</text>
+	</string>
+	<string id="ui_mcm_aggression_mode_desc">
+		<text>Determines how much time NPCs get to move before returning to cover/camping behavior, affecting their perceived aggressiveness in combat. This time resets after each combat stimulus, such as gunfire or spotting an enemy. 
+				\n This setting only changes movement time thresholds; the underlying coward, dumb, and stupid schemes remain unchanged, as do Faction/Rank-based attack behaviors.
+				\n- AGGRESSIVE: NPCs have high movement thresholds, moving and taking action more often. 
+				\n- BALANCED: NPCs get moderate movement thresholds, alternating between advancing and holding position. 
+				\n- DEFENSIVE: NPCs have low movement thresholds, staying mostly in cover/camping and only moving when necessary. 
+				\nDefault: Balanced</text>
+	</string>
+
+		<!-- MOVEMENTS -->
+	<string id="ui_mcm_movement_mode_selection_header">
+		<text>Movement Mode Selection</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_combat">
+		<text>Combat Positioning</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_combat_desc">
+		<text>Enables AI combat positioning logic based on faction, rank, and weapon type. NPCs will attempt to maintain tactical distance when they lack direct line of sight to the enemy. This primarily affects mid-range and close combat behavior.
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_cover">
+		<text>Cover Movement</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_cover_desc">
+		<text>Enables AI cover movement behavior. NPCs will relocate between cover positions during combat when they lack direct line of sight to the enemy. This behavior is primarily applied in mid-range and close-range engagements.
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_sprint">
+		<text>Sprint Movement</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_sprint_desc">
+		<text>Enable sprint movemets for the NPCs in combat \n
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_prone">
+		<text>Prone Movement</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_prone_desc">
+		<text>Enable prone movemets for the NPCs to use prone position in combat. \n
+				\n Default: Enabled</text>
+	</string>
+
+		<!-- WOUNDED -->
+	<string id="ui_mcm_wounded_mode_selection_header">
+		<text>Wounded Mode Selection</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_wounds">
+		<text>Wounded state</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_wounds_desc">
+		<text>Enable NPCs to use rank- and faction-based wounded states in combat. This determines when NPCs become critically injured and lay down, affecting HP, wounded state.  \n
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_wounded_mode">
+		<text>Wounded Mode</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_wounded_mode_lst_wounded_resilient">
+		<text>Resilient</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_wounded_mode_lst_wounded_balanced">
+		<text>Balanced</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_wounded_mode_lst_wounded_vulnerable">
+		<text>Vulnerable</text>
+	</string>
+	<string id="ui_mcm_wounded_mode_desc">
+		<text>Controls how easily NPCs enter wounded states during combat.
+				\n- RESILIENT: NPCs require more damage before becoming wounded. \n
+				\n- BALANCED: Balanced Combat AI injury behavior. \n
+				\n- VULNERABLE: NPCs require less damage before becoming wounded. \n
+				\nDefault: Balanced</text>
+	</string>
+
+	<!-- PANIC -->
+	<string id="ui_mcm_menu_panic_tab">
+		<text>NPC Flee</text>
+	</string>
+
+	<string id="ui_mcm_npc_flee_title">
+		<text>NPC Flee</text>
+	</string>
+
+	<string id="ui_mcm_npc_flee_header_main">
+		<text>NPC Flee Settings</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_npc_flee">
+		<text>Enable NPC Flee</text>
+	</string>
+
+	<string id="ui_mcm_npc_panic_header_main">
+		<text>Panic Selection</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_npc_panic">
+		<text>NPC Panic</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_npc_panic_desc">
+		<text>Enables NPC panic behavior. NPCs may reposition in combat or flee to nearby smart terrain when health is low and combat pressure is unfavorable (based on rank, power ratio, and random morale factors). \n
+				\n Default: Enabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_squad_panic">
+		<text>SQUAD Panic</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_squad_panic_desc">
+		<text>Enables squad panic behavior. Squads will flee to nearby smart terrain when combat pressure is high (based on rank, power ratio).  \n
+				\n Default: Enabled</text>
+	</string>
+
+	<!-- Hp -->
+	<string id="ui_mcm_npc_flee_header_hp">
+		<text>Health   (panic triggers when NPC health drops below threshold) (Only NPC Panic)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_npc_flee_hp">
+		<text>Health threshold</text>
+	</string>
+
+	<!-- Powers -->
+	<string id="ui_mcm_npc_flee_header_power">
+		<text>Powers   (panic starts if "enemies_power > friends_power*threshold_mult")</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_threshold_mult">
+		<text>Threshold mult</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_companion_pwr">
+		<text>Companion power multiplier</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enemies_pwr_mult">
+		<text>Enemies power mult</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_friends_pwr_mult">
+	    <text>Friends power mult</text>
+	</string>
+
+	<!-- Distance before panic -->
+	<string id="ui_mcm_npc_flee_header_dist_before">
+		<text>Radius   (before panic starts, calculates enemies/friends power only in this radius)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enemies_radius">
+		<text>Enemies radius</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_friends_radius">
+		<text>Friends radius</text>
+	</string>
+
+	<!-- Distance after panic -->
+	<string id="ui_mcm_npc_flee_header_dist_after">
+		<text>Radius 2   (when already panicking, lower radius to cancel if weaker enemies nearby)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enemies_upd_radius">
+		<text>Enemies radius 2</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_friends_upd_radius">
+		<text>Friends radius 2</text>
+	</string>
+
+	<!-- Others -->
+	<string id="ui_mcm_npc_flee_header_others">
+		<text>Misc</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_start_flee_time">
+		<text>First panic seconds that can't be cancelled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_start_flee_time_desc">
+		<text>First seconds after panic starts that can not be cancelled by weak enemy or hits</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_protection_time">
+		<text>Panic protection time (sec.)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_protection_time_desc">
+		<text>When NPC stops panicking, they can't panic again for this time</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_cancel_on_hit">
+		<text>Cancel panic if NPC hit</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_hits_to_cancel">
+		<text>Hits amount to cancel panic</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_smart_min_dist">
+		<text>Min distance to panic</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_smart_min_dist_desc">
+		<text>Pick a target to panic only if it's further than this value</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_cover_time">
+		<text>Cover squad time (0 to disable)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_cover_time_desc">
+		<text>Farthest NPC will cover their squad's panic</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_smoke_enabled">
+		<text>Smoke grenades</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_dbg">
+		<text>Debug (console prints)</text>
+	</string>
+
+
+	<!-- PATCH -->
+	<string id="ui_mcm_menu_patch_tab">
+		<text>Patch</text>
+	</string>
+
+	<string id="ui_mcm_patch_title">
+		<text>Patches</text>
+	</string>
+
+	<string id="ui_mcm_stealth_patch_tab_mora_combat_ignore">
+		<text>Mora's Combat ignore military fix v.2.2 Patch</text>
+	</string>
+	<string id="ui_mcm_stealth_patch_tab_mora_combat_ignore_desc">
+		<text>In Cordon, Loners and Military maintain an uneasy ceasefire and avoid open conflict at a distance. Only close encounters or direct provocation will lead to fighting. Disable to restore the usual hostile behavior. This patch should be enabled with RE:DONE Collection Addon</text>
+	</string>
+
+	<string id="ui_mcm_mora_npc_amnesia_info">
+		<text>Mora's NPCs without amnesia v3.0 Patch: This feature is built into Combat AI and is always enabled. It cannot be disabled and requires no action.</text>
+	</string>
+
+	<string id="ui_mcm_stealth_patch_tab_michiko_patch">
+		<text>Michiko Weather Patch</text>
+	</string>
+	<string id="ui_mcm_stealth_patch_tab_michiko_patch_desc">
+		<text>Recommended to enable this if you use Michiko's weather.</text>
+	</string>
+
+	<!-- DEBUG -->
+	<string id="ui_mcm_menu_debug_tab">
+		<text>Debug</text>
+	</string>
+
+	<string id="ui_mcm_debug_title">
+		<text>Debug</text>
+	</string>
+
+	<string id="ui_mcm_dubug_stealth_header_main">
+		<text>Stealth Debug</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debugx">
+		<text>Enable Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debugx_desc">
+		<text>Displaying equation variables (for correct threshold you have to keep cursor on object all the time): \n 
+				\n Console: all variables \n 
+				\n Dynamic news: if object see actor or not \n 
+				\n Bottom of the screen message: visibility threshold of object (and variables that you can change in MCM)</text>
+	</string>
+
+	<string id="ui_mcm_dubug_panic_header_main">
+		<text>NPC Flee Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_flee_dbg">
+		<text>Enable Debug (console prints)</text>
+	</string>
+
+	<string id="ui_mcm_dubug_combat_debug_header_main">
+		<text>Combat AI Debug</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_alert">
+		<text>Danger ALERT Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_alert_desc">
+		<text>Displaying NPC ALERT state variables: \n 
+				\n Console: npc name, stage, distance, see target and actor relation \n 
+				\n Dynamic news: disabled \n 
+				\n Bottom of the screen message: disabled</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_aim">
+		<text>Rank AIM Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_aim_desc">
+		<text>Displaying AI aim update information: \n 
+				\n Console: AI aim update events \n 
+				\n Console: NPC id, rank and rank value \n 
+				\n Used to verify rank-based AI aim scaling</text>
+	</string>
+
+
+	<string id="ui_mcm_stealth_debug_tab_debug_medkit">
+		<text>NPC MEDKIT Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_medkit_desc">
+		<text>Displaying NPC self-healing information: \n 
+				\n Console: NPC receiving medkits \n 
+				\n Console: medkit and bandage usage \n 
+				\n Console: healing and bleeding recovery events</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_movement">
+		<text>COMBAT Movements Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_movement_desc">
+		<text>Displaying NPC combat movement decisions: \n 
+				\n Console: selected movement actions \n 
+				\n Console: rank and weapon movement overrides \n 
+				\n Used to verify combat movement behavior</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_detection">
+		<text>DETECTION Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_detection_desc">
+		<text>Logging Detection System console prints:\n
+				\n Console: [DETECTION] \n
+				\n Actor movement state detection \n
+				\n Weather, rain, fog and flashlight detection events</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_sound">
+		<text>SOUND Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_sound_desc">
+		<text>Logging SOUND / HEARING system console output:\n
+				\n Console: [SOUND] \n
+				\n NPC hear callback processing (npc_on_hear_callback) \n
+				\n Sound classification: weapon, danger, item, movement, combat \n
+				\n Distance-based hearing detection with rank, weather and type multipliers \n
+				\n Combat sound reaction (noise radius → state_mgr assault) \n
+				\n Danger propagation and visibility triggers</text>
+	</string>
+
+	<string id="ui_mcm_dubug_combat_debug_header_enemy_id">
+		<text>Debug Combat ID</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_meta">
+		<text>Meta ID Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_meta_desc">
+		<text>Logging META switch-table operations (NPC/ENEMY state caching):
+				\n Console: switch-table access / cache hit / init / cleanup events
+				\n Mode: RAW (all access) / CLEAN (only state changes)
+				\n Scope: NPC state tables, enemy state cache, priority handling
+				\n
+				\n CLEAN mode removes duplicate logs for identical state transitions</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_enemy">
+		<text>Enemy ID Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_enemy_desc">
+		<text>Logging ENEMY selection & state transitions (NPC best_enemy system):
+				\n Console: ENGINE / MEMORY / SWITCH / STATE changes
+				\n Mode: RAW (all enemy resolution steps)
+				\n Mode: CLEAN (only enemy changes per NPC)
+				\n Scope: best_enemy(), db.storage.enemy_id, memory fallback
+				\n
+				\n CLEAN mode filters repeated enemy assignments and only logs transitions
+				\n STATE -> NONE is logged when no valid enemy exists</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_danger">
+		<text>Danger ID Debug</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_danger_desc">
+		<text>Logging DANGER system state resolution (NPC best_danger + enemy assignment):
+				\n Console: ENGINE danger / HIT memory / MEMORY scan / ASSIGN / REJECT
+				\n Mode: RAW (all detection steps and evaluations)
+				\n Mode: CLEAN (only changes in assigned danger/enemy target per NPC)
+				\n Scope: npc:best_danger(), memory_visible_objects, hit tracking, st.enemy_id
+				\n
+				\n CLEAN mode logs only when danger target changes or is invalidated
+				\n REJECT states include invalid class, dead objects, or non-enemy relations
+				\n ASSIGN events indicate confirmed valid danger target stored in NPC state</text>
+	</string>
+
+</string_table>

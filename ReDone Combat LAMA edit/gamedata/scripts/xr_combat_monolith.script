@@ -1,0 +1,828 @@
+--[[----------------------------------------------------------------------------------------------------------
+	XR COMBAT MONOLITH
+------------------------------------------------------------------------------------------------------------]]
+local db = db
+local level = level
+local device = device
+local vector = vector
+local time_global = time_global
+local math_random = math.random
+-------------------------------
+local base = xr_evaluators_id.combat_monolith_base
+local prop_enable = base + 0
+local prop_see    = base + 1
+local prop_close  = base + 2
+local prop_on_pos = base + 3
+
+base = xr_actions_id.combat_monolith_base
+local act_fight_close = base + 0
+local act_fight_far   = base + 1
+local act_look_around = base + 2
+local act_go_to_pos   = base + 3
+-------------------------------
+local function npc_prone_enabled() 
+	return stealth_mcm.get_config("enable_ai_prone") 
+end
+
+local function npc_sprint_enabled() 
+	return stealth_mcm.get_config("enable_ai_sprint") 
+end
+-------------------------------------------------------------------------------------
+-- EVALUATOR COMBAT MONOLITH
+-------------------------------------------------------------------------------------
+class "evaluator_combat_monolith" (property_evaluator)
+
+function evaluator_combat_monolith:__init(name, storage) super (nil, name)
+	self.st = storage
+end
+
+function evaluator_combat_monolith:evaluate()
+	if not self.object or not self.object:alive() then
+		return false
+	end
+
+	local st = db.storage[self.object:id()]
+	if not st then
+		return false
+	end
+
+	return db.storage[self.object:id()].script_combat_type == "monolith"
+end
+
+-------------------------------------------------------------------------------------
+-- EVALUATOR SEE
+-------------------------------------------------------------------------------------
+class "evaluator_see" (property_evaluator)
+
+function evaluator_see:__init(name, storage) super (nil, name)
+	self.st = storage
+end
+
+function evaluator_see:evaluate()
+	if not self.object or not self.object:alive() then
+		return false
+	end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not be or not be:alive() then
+		return false
+	end
+
+	if be and self.object:see(be) then
+		self.st.last_seen_vert_id = be:level_vertex_id()
+		return true
+	else
+		return false
+	end
+end
+
+-------------------------------------------------------------------------------------
+-- EVALUATOR CLOSE
+-------------------------------------------------------------------------------------
+class "evaluator_close" (property_evaluator)
+
+function evaluator_close:__init( name, storage ) super ( nil, name )
+	self.st = storage
+	self.close_dist_sqr = math.random( 20*20, 35*35 )
+end
+
+function evaluator_close:evaluate()
+	if not self.object or not self.object:alive() then
+		return false
+	end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not (be and be:alive()) then
+		return false
+	end
+
+	if IsWounded(self.object) then
+		return false
+	end
+
+	if (self.st.help_wounded and self.st.help_wounded.selected_id ~= nil) then
+		return false
+	end
+
+	return be ~= nil and self.object:position():distance_to_sqr( be:position() ) < self.close_dist_sqr
+end
+
+--[[function evaluator_close:__init(name, storage) super(nil, name)
+	self.st = storage
+	self.fallback_dist_sqr = math_random(10*10, 25*25)
+end
+
+function evaluator_close:evaluate()
+	if not self.object or not self.object:alive() then
+		return false
+	end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not (be and be:alive()) then
+		return false
+	end
+
+	if IsWounded(self.object) then
+		return false
+	end
+
+	if (self.st.help_wounded and self.st.help_wounded.selected_id ~= nil) then
+		return false
+	end
+
+	local abort_dist = nil
+
+	if redone_ai_combat and redone_ai_combat.get_combat_distances then
+		local a, _ = redone_ai_combat.get_combat_distances(self.object, be)
+		abort_dist = a
+	end
+
+	if not abort_dist or abort_dist <= 0 then
+		abort_dist = math.sqrt(self.fallback_dist_sqr)
+	end
+
+	local dist_sqr = self.object:position():distance_to_sqr(be:position())
+	return dist_sqr < (abort_dist * abort_dist)
+end]]--
+
+-------------------------------------------------------------------------------------
+-- EVALUATOR ON POS
+-------------------------------------------------------------------------------------
+class "evaluator_on_pos" ( property_evaluator )
+
+function evaluator_on_pos:__init( name, storage ) super ( nil, name )
+	self.st = storage
+end
+
+function evaluator_on_pos:evaluate()
+	if not self.object or not self.object:alive() then
+		return false
+	end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not (be and be:alive()) then
+		return false
+	end
+
+	if self.object:see(be) then
+		return false
+	end
+
+	if IsWounded(self.object) then
+		return false
+	end
+
+	if (self.st.help_wounded and self.st.help_wounded.selected_id ~= nil) then
+		return false
+	end
+
+	local r = self.object:level_vertex_id() == self.st.last_seen_vert_id
+	--printf( tostring( r ))
+	return r
+end
+
+-------------------------------------------------------------------------------------
+-- ACTION FIGHT CLOSE
+-------------------------------------------------------------------------------------
+class "action_fight_close" (action_base)
+
+function action_fight_close:__init(name, storage) super(nil, name)
+	self.st = storage
+end
+
+function action_fight_close:initialize()
+	action_base.initialize(self)
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	local see = self.object:see(be)
+	local ene_pos = see and utils_obj.safe_bone_pos(be,"bip01_neck") or self.object:memory_position(be) or nil
+
+	local bw = self.object:active_item()
+	if not bw then
+		local bw_id = self.object:best_weapon()
+		bw = bw_id and level.object_by_id(bw_id)
+	end
+
+	local tg = time_global()
+
+	if self.st.__keep_body_state_until == nil or tg > self.st.__keep_body_state_until then
+		self.st.__keep_body_state_until = tg + math_random(2000, 4000)
+
+		local dir = ene_pos and vec_sub(ene_pos, self.object:position()) or self.object:direction()
+		if self.object:body_state() ~= move.crouch then
+			if level.high_cover_in_direction(self.object:level_vertex_id(), dir) < 0.2 then
+				self.st.stand = false
+			else
+				self.st.stand = true
+			end
+		else
+			if level.high_cover_in_direction(self.object:level_vertex_id(), dir) >= 0.2 then
+				self.st.stand = true
+			else
+				self.st.stand = false
+			end
+		end
+	end
+
+	local new_state
+
+	if bw then
+		local is_sniper = IsSniper(bw)
+		if self.st.stand then
+			new_state = see and "assault_fire" or "assault"
+		else
+			new_state = see and (is_sniper and "hide_sniper_fire" or "sneak_fire") or "sneak_run"
+		end
+	else
+		new_state = "sneak_run"
+	end
+
+	if new_state and self.st.__last_state ~= new_state then
+		self.st.__last_state = new_state
+		state_mgr.set_state(self.object,new_state,nil,nil,{look_object = be})
+		--printf("[MONO][CLOSE] SET | state=%s | npc=%d | enemy=%d",tostring(new_state),self.object:id(),be and be:id() or -1)
+	end
+end
+
+-------------------------------------------------------------------------------------
+-- EXECUTE FIGHT CLOSE
+-------------------------------------------------------------------------------------
+function action_fight_close:execute()
+	action_base.execute(self)
+
+	--printf("[MONO] action_fight_close:execute")
+end
+
+
+function action_fight_close:finalize()
+	action_base.finalize(self)
+end
+
+function action_fight_close:hit_callback(obj, amount, local_direction, who, bone_index)
+	if not who then return end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if be and who:id() == be:id() then
+		self.st.last_seen_vert_id = be:level_vertex_id()
+	end
+end
+
+-------------------------------------------------------------------------------------
+-- ACTION FIGHT FAR
+-------------------------------------------------------------------------------------
+class "action_fight_far" (action_base)
+
+function action_fight_far:__init(name, storage) super(nil, name)
+	self.st = storage
+	self.t  = {}
+end
+
+function action_fight_far:initialize()
+	action_base.initialize(self)
+
+	if not self.st.last_seen_vert_id then
+		self.st.last_seen_vert_id = self.object:best_enemy():level_vertex_id()
+	end
+
+	self.object:set_desired_direction()
+	self.object:set_desired_position()
+	self.object:set_detail_path_type(move.line)
+	self.object:set_path_type(game_object.level_path)
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	local see = self.object:see(be)
+	local see_me = be:see(self.object)
+	local ene_pos = see and utils_obj.safe_bone_pos(be,"bip01_neck") or self.object:memory_position(be) or nil
+
+	local bw = self.object:active_item()
+	if not bw then
+		local bw_id = self.object:best_weapon()
+		bw = bw_id and level.object_by_id(bw_id)
+	end
+
+	local tg = time_global()
+
+	if self.st.__keep_body_state_until == nil or tg > self.st.__keep_body_state_until then
+		self.st.__keep_body_state_until = tg + math_random(2000, 4000)
+
+		local dir = ene_pos and vec_sub(ene_pos, self.object:position()) or self.object:direction()
+		if self.object:body_state() ~= move.crouch then
+			if level.high_cover_in_direction(self.object:level_vertex_id(), dir) < 0.2 then
+				self.st.stand = false
+			else
+				self.st.stand = true
+			end
+		else
+			if level.high_cover_in_direction(self.object:level_vertex_id(), dir) >= 0.2 then
+				self.st.stand = true
+			else
+				self.st.stand = false
+			end
+		end
+	end
+
+	local new_state
+
+	if bw then
+		local is_sniper = IsSniper(bw)
+
+		if self.st.stand then
+			new_state = see and "assault_fire" or "assault"
+		else
+			new_state = see and (is_sniper and "hide_sniper_fire" or "sneak_fire") or "sneak_run"
+		end
+	else
+		new_state = "sneak_run"
+	end
+
+	if see then
+		if self.st.__last_state ~= new_state then
+			self.st.__last_state = new_state
+			state_mgr.set_state(self.object, new_state, nil, nil,{look_object = be})
+		end
+
+	elseif see_me then
+		if self.st.__last_state ~= new_state then
+			self.st.__last_state = new_state
+			state_mgr.set_state(self.object, new_state, nil, nil,{look_position = ene_pos})
+			--printf("[MONO][FAR] SET | state=%s | npc=%d | enemy=%d",tostring(new_state),self.object:id(),be and be:id() or -1)
+		end
+	end
+
+	self.cached_id = -1
+end
+
+-------------------------------------------------------------------------------------
+-- EXECUTE FIGHT FAR
+-------------------------------------------------------------------------------------
+function action_fight_far:execute()
+	action_base.execute(self)
+
+	if not self.object or not self.object:alive() then
+		return
+	end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not (be and be:alive()) then
+		return
+	end
+
+	--printf("[MONO] action_fight_far:execute")
+
+	local tg = time_global()
+	self.next_repath_time = self.next_repath_time or 0
+
+	if tg < self.next_repath_time then
+		return
+	end
+	self.next_repath_time = tg + math_random(2000, 4000)
+
+	if self.st.last_seen_vert_id ~= self.cached_id then
+		self.cached_id = self.st.last_seen_vert_id
+		self.st.last_seen_vert_id = utils_obj.send_to_nearest_accessible_vertex(self.object, self.cached_id)
+
+	end
+end
+
+function action_fight_far:finalize()
+	action_base.finalize( self )
+end
+
+-------------------------------------------------------------------------------------
+-- ACTION LOOK AROUND
+-------------------------------------------------------------------------------------
+class "action_look_around" (action_base)
+
+function action_look_around:__init(name, storage) super(nil, name)
+	self.st = storage
+end
+
+function action_look_around:initialize()
+	action_base.initialize(self)
+	self:reset()
+end
+
+function action_look_around:reset()
+	self.forget_time     = device():time_global() + 50000
+	self.change_dir_time = device():time_global() + 100000
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not (be and be:alive()) then
+		return
+	end
+
+	if not self.st.last_seen_pos and be ~= nil then
+		self.st.last_seen_pos = be:position()
+	end
+
+	local dist = be:position():distance_to(self.object:position())
+	local dir = vector():set(be:position()):sub(self.object:position()):normalize()
+	local cover = level.high_cover_in_direction(self.object:level_vertex_id(), dir)
+
+	local has_cover = cover > 0.2
+	local rnd = math_random(1, 100)
+
+	local new_state = "hide_na"
+
+	if npc_prone_enabled() and not has_cover then
+		if dist < 25 then
+			if rnd < 10 then
+				new_state = "hide"
+			elseif rnd < 25 then -- or self.st.hit_prone
+				new_state = "prone"
+				self.st.is_prone = true
+				self.st.hit_prone = false
+				self.st.prone_lock = device():time_global() + math_random(4000, 6000)
+			else
+				new_state = "hide_na"
+			end
+		elseif dist < 55 then
+			if rnd < 10 then
+				new_state = "hide"
+			elseif rnd < 35 or self.st.hit_prone then
+				new_state = "prone"
+				self.st.is_prone = true
+				self.st.hit_prone = false
+				self.st.prone_lock = device():time_global() + math_random(4000, 6000)
+			else
+				new_state = "hide_na"
+			end
+		else
+			if rnd < 10 then
+				new_state = "hide"
+			elseif rnd < 45 or self.st.hit_prone then
+				new_state = "prone"
+				self.st.is_prone = true
+				self.st.hit_prone = false
+				self.st.prone_lock = device():time_global() + math_random(4000, 6000)
+			else
+				new_state = "hide_na"
+			end
+		end
+	else
+		if dist < 25 then
+			new_state = "hide_na"
+		elseif dist < 55 then
+			if rnd < 10 then 
+				new_state = "hide"
+			else
+				new_state = "hide_na"
+			end
+		end
+	end
+
+	state_mgr.set_state(self.object, new_state, nil, nil, {look_position = self.st.last_seen_pos})
+end
+
+-------------------------------------------------------------------------------------
+-- EXECUTE LOOK AROUND
+-------------------------------------------------------------------------------------
+function action_look_around:execute()
+	action_base.execute(self)
+	--printf("[MONO] action_look_around:execute")
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not (be and be:alive()) then
+		return
+	end
+
+	if self.forget_time < time_global() then
+		--printf("pl:Disabling_memory_object[9]")
+		--self.object:enable_memory_object( self.object:best_enemy(), false )
+		self.st.last_seen_vert_id = nil
+		return
+	end
+
+	if self.st.is_prone and self.st.prone_lock and device():time_global() > self.st.prone_lock then
+		self.st.is_prone = nil
+		self.st.hit_prone = nil
+		self.st.prone_lock = nil
+	end
+
+	if self.st.is_prone and be and self.object:see(be) then
+		if be and self.object:see(be) then
+			state_mgr.set_state(self.object, "prone_fire", nil, nil, {look_object = be})
+		else
+			state_mgr.set_state(self.object, "prone", nil, nil, {look_position = self.st.last_seen_pos})
+		end
+		return
+	end
+
+	if self.change_dir_time < device():time_global() then
+		self.change_dir_time = device():time_global() + math_random(40000, 70000)
+
+		local ang = math_random(-15, 15)
+		local dir = self.st.last_seen_pos
+			and vector():set(self.st.last_seen_pos):sub(self.object:position()):normalize()
+
+		dir = dir and vector_rotate_y(dir, ang):normalize()
+		dir = dir and vector():set(dir.x * 10, dir.y * 10, dir.z * 10)
+
+		local dist = be:position():distance_to(self.object:position())
+		local rnd = math_random(1, 100)
+
+		local new_state = "hide_na"
+
+		if dist < 25 then
+			new_state = "hide_na"
+
+		elseif dist < 55 then
+			if rnd < 10 then 
+				new_state = "hide"
+			else
+				new_state = "hide_na"
+			end
+		end
+
+		state_mgr.set_state(self.object,new_state,nil,nil,{look_position = dir and self.object:position():add(dir)})
+	end
+end
+
+function action_look_around:hit_callback(obj, amount, local_direction, who, bone_index)
+	if not who then return end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if be and who:id() == be:id() then
+		if npc_prone_enabled() then
+			self.st.hit_prone = true
+			self.st.prone_lock = device():time_global() + math_random(4000, 6000)
+		end
+
+		self.st.last_seen_pos = be:position()
+		self:reset()
+	end
+end
+
+function action_look_around:finalize()
+	action_base.finalize(self)
+
+	self.st.last_seen_pos = nil
+end
+
+-------------------------------------------------------------------------------------
+-- ACTION GO TO POS
+-------------------------------------------------------------------------------------
+class "action_go_to_pos" (action_base)
+
+function action_go_to_pos:__init(name, storage) super(nil, name)
+	self.st = storage
+	self.t  = {}
+end
+
+function action_go_to_pos:initialize()
+	action_base.initialize(self)
+
+	if not self.st.last_seen_vert_id then
+		self.st.last_seen_vert_id = self.object:level_vertex_id()
+	end
+
+	self.object:set_desired_direction()
+	self.object:set_desired_position()
+	self.object:set_detail_path_type(move.line)
+	self.object:set_path_type(game_object.level_path)
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not be then return end
+
+	local ene_pos = be and (self.object:memory_position(be) or be:position())
+	local tg = time_global()
+
+	if self.st.__keep_body_state_until == nil or tg > self.st.__keep_body_state_until then
+		self.st.__keep_body_state_until = tg + math_random(6000, 8000)
+
+		local dir = ene_pos and vec_sub(ene_pos, self.object:position()) or self.object:direction()
+		if dir:magnitude() > 0 then dir:normalize() end
+
+		if self.object:body_state() ~= move.crouch then
+			if level.high_cover_in_direction(self.object:level_vertex_id(), dir) < 0.2 then
+				self.st.stand = false
+			else
+				self.st.stand = true
+			end
+	else
+			if level.high_cover_in_direction(self.object:level_vertex_id(), dir) >= 0.2 then
+				self.st.stand = true
+			else
+				self.st.stand = false
+			end
+		end
+	end
+
+	local pos = self.object:position()
+	local cover = self.object:best_cover(pos, pos, 4, 1, 200)
+	local in_cover = false
+	if cover then
+		local cpos = cover:position()
+		local dist_sq = cpos:distance_to_sqr(pos)
+		if dist_sq < 0.8 then
+			in_cover = true
+		end
+	end
+
+	local dist_sqr = pos:distance_to_sqr(be:position())
+	local close = dist_sqr < (25 * 25)
+	local far   = dist_sqr < (75 * 75)
+	local rnd   = math_random(1, 100)
+
+	local next_vid = self._current_target_vertex or self.st.last_seen_vert_id
+	local sprint_allowed = true
+	if next_vid then
+		local npc_pos = self.object:position()
+		local next_pos = level.vertex_position(next_vid)
+		local dist_sqr = npc_pos:distance_to_sqr(next_pos)
+		if dist_sqr < (12 * 12) then
+			sprint_allowed = false
+		end
+	end
+
+	local new_state = nil
+	local state_set = nil
+
+	if npc_sprint_enabled() and not in_cover and sprint_allowed then
+		if rnd < 25 then
+			new_state = "raid"
+			--printf("[MONO][GO_TO] RAID | no cover")
+		elseif rnd < 35 then
+			new_state = "rush"
+			--printf("[MONO][GO_TO] RUSH | no cover")
+		else
+			new_state = "panic"
+			--printf("[MONO][GO_TO] PANIC | no cover")
+		end
+	else
+		if self.st.stand then
+			if not far then
+				new_state = "assault"
+				--printf("[MONO][GO_TO] ASSAULT | close+stand")
+
+			elseif far and not close then
+				if rnd < 25 then
+					new_state = "sneak_run"
+					--printf("[MONO][GO_TO] SNEAK_RUN | mid range")
+				else
+					new_state = "assault"
+					--printf("[MONO][GO_TO] ASSAULT | mid range")
+				end
+
+			else
+				if rnd < 75 then
+					new_state = "sneak_run"
+					--printf("[MONO][GO_TO] SNEAK_RUN | close range")
+				else
+					new_state = "assault"
+					--printf("[MONO][GO_TO] ASSAULT | close range")
+				end
+			end
+
+		else
+			if close then
+				if rnd < 65 then
+					new_state = "sneak_run"
+					--printf("[MONO][GO_TO] SNEAK_RUN | crouch close")
+				else
+					new_state = "assault"
+					--printf("[MONO][GO_TO] ASSAULT | crouch close")
+				end
+			else
+				new_state = "assault"
+				--printf("[MONO][GO_TO] ASSAULT | crouch far")
+			end
+		end
+	end
+
+	self.st.__next_state_change = self.st.__next_state_change or 0
+	self.st.__last_state = self.st.__last_state or nil
+
+	if self.st.__next_state_change > tg then
+    		return
+	end
+
+	if new_state and not state_set and new_state ~= self.st.__last_state then
+		state_mgr.set_state(self.object, new_state, nil, nil, {look_object = be})
+		self.st.__last_state = new_state
+		self.st.__next_state_change = tg + math_random(1000, 2000)
+		state_set = true
+	end
+
+	self.cached_id = -1
+end
+
+-------------------------------------------------------------------------------------
+-- EXECUTE GO ON POS
+-------------------------------------------------------------------------------------
+function action_go_to_pos:execute()
+	action_base.execute(self)
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not be then
+		be = self.object:best_enemy()
+	end
+
+	if not (be and be:alive()) then
+		return
+	end
+
+	local tg = time_global()
+	self.next_repath_time = self.next_repath_time or 0
+	if tg < self.next_repath_time then
+		return
+	end
+
+	if not self.repath_offset then
+		self.repath_offset = math_random(0, 5000)
+	end
+	self.next_repath_time = tg + math_random(6000, 12000) + self.repath_offset
+
+	local enemy_pos = self.st.last_pos
+	if not enemy_pos then
+		enemy_pos = self.object:memory_position(be)
+	end
+
+	if not enemy_pos then
+		enemy_pos = be:position()
+	end
+
+	local target_vertex_id = redone_ai_combat.get_combat_movement(self.object, enemy_pos)
+	if target_vertex_id then
+		local new_vid = utils_obj.send_to_nearest_accessible_vertex(self.object, target_vertex_id)
+		if new_vid and new_vid ~= self._current_target_vertex then
+			--printf("[MONO] action_go_to_pos: selected target vertex")
+			self._current_target_vertex = new_vid
+			self.st.last_seen_vert_id = new_vid
+		end
+	else
+		local last_vid = self.st.last_seen_vert_id
+		if last_vid and last_vid ~= self.cached_id then
+			self.cached_id = last_vid
+		end
+
+		if last_vid then
+			self._current_target_vertex = last_vid
+			self.object:set_dest_level_vertex_id(last_vid)
+			--printf("[MONO] action_go_to_pos: fallback -> last_seen_vert_id (%d)", last_vid)
+		else
+			--printf("[MONO] action_go_to_pos: fallback FAILED -> no valid vertex available")
+		end
+	end
+end
+
+function action_go_to_pos:finalize()
+	action_base.finalize( self )
+end
+
+--------------------------------------------------------------------------------------
+-- BINDER COMBAT MONOLITH
+--------------------------------------------------------------------------------------
+function add_to_binder(npc, ini, st, planner)
+	if not npc or not planner then return end
+	--[[planner:add_evaluator(xr_evaluators_id.combat_monolith_base, evaluator_combat_monolith("combat_monolith", st))
+
+	local action = action_zombie_shoot("action_zombie_shoot", st)
+	if action then
+	action:add_precondition(world_property( xr_evaluators_id.combat_monolith_base, true ))
+	action:add_effect      (world_property( stalker_ids.property_enemy, false))
+	planner:add_action(xr_actions_id.combat_monolith_base, action)
+	end]]--
+
+	planner:add_evaluator(prop_enable, evaluator_combat_monolith("combat_monolith", st))
+	planner:add_evaluator(prop_see, evaluator_see ("combat_monolith_see", st))
+	planner:add_evaluator(prop_close, evaluator_close ("combat_monolith_close", st))
+	planner:add_evaluator(prop_on_pos, evaluator_on_pos ("combat_monolith_on_pos", st))
+
+	local action = action_fight_close("combat_monolith_fight_close", st)
+	if action then
+		action:add_precondition(world_property(stalker_ids.property_alive, true ))
+		action:add_precondition(world_property(stalker_ids.property_enemy, true ))
+		action:add_precondition(world_property(xr_evaluators_id.script_combat, true ))
+		action:add_precondition(world_property(prop_enable, true ))
+		action:add_precondition(world_property(prop_see, true ))
+		action:add_precondition(world_property(prop_close, true ))
+		action:add_effect      (world_property(stalker_ids.property_enemy, false))
+		planner:add_action(act_fight_close, action)
+
+		xr_logic.subscribe_action_for_events(npc, st, action)
+	end
+
+	action = action_fight_far("combat_monolith_fight_far", st)
+	if action then
+		action:add_precondition(world_property(prop_close, false))
+		action:add_precondition(world_property(prop_see, true ))
+		action:add_effect      (world_property(prop_close, true ))
+		planner:add_action(act_fight_far, action)
+	end
+
+	action = action_look_around("combat_monolith_look_around", st)
+	if action then
+		action:add_precondition(world_property(prop_on_pos, true ))
+		action:add_precondition(world_property(prop_see, false))
+		action:add_effect      (world_property(prop_see, true ))
+		planner:add_action(act_look_around, action)
+	end
+
+	action = action_go_to_pos("combat_monolith_go_to_pos", st)
+	if not action then return end
+
+	action:add_precondition(world_property(prop_on_pos, false ))
+	action:add_effect      (world_property(prop_on_pos, true  ))
+	planner:add_action(act_go_to_pos, action)
+end

@@ -1,0 +1,48 @@
+--[[--------------------------------------------------------------------------------------------------------
+        RE:DONE AI XR MEET
+        org.author: Demonized
+------------------------------------------------------------------------------------------------------------
+    Global xr_meet override that disables NPC dialogue and trading during active combat.
+----------------------------------------------------------------------------------------------------------]]
+local function xr_meet_active() return 
+	stealth_mcm.get_config("enable_xr_meet") 
+end
+
+-------------------------------
+if xr_meet_active() then
+-------------------------------
+local process_npc_usability_original = xr_meet.process_npc_usability
+local evaluator_contact_evaluate_original = xr_meet.evaluator_contact.evaluate
+
+local function npc_in_combat(npc)
+	if not npc or not npc:alive() then return false end
+
+	local enemy = redone_ai_combat.get_combat_enemy(npc)
+	if enemy and enemy:alive() then return true end
+
+	return false
+end
+
+xr_meet.process_npc_usability = function(npc, ...)
+	local base = process_npc_usability_original
+	if not npc then return base(npc, ...) end
+
+	if npc_in_combat(npc) then
+		npc:disable_talk()
+		npc:disable_trade()
+		return false
+	end
+
+	return base(npc, ...)
+end
+
+xr_meet.evaluator_contact.evaluate = function(self, ...)
+	if self and self.object and npc_in_combat(self.object) then return false end
+
+	return evaluator_contact_evaluate_original(self, ...)
+end
+
+--xr_meet_active()
+-------------------------------
+end
+-------------------------------

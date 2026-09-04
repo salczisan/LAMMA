@@ -1,0 +1,188 @@
+--[[----------------------------------------------------------------------------------------------------
+	Overrides: XR COMBAT CAMPER
+	org.author: GhenTuong
+------------------------------------------------------------------------------------------------------]]
+local db = db
+local level = level
+local device = device
+local vector = vector
+local time_global = time_global
+local math_random = math.random
+-------------------------------
+local function npc_prone_enabled()
+	return stealth_mcm.get_config("enable_ai_prone")
+end
+-------------------------------
+function xr_combat_camper.action_shoot:initialize()
+	action_base.initialize(self)
+
+	self.st.camper_combat_action = true
+	--xr_sound.set_sound_play(self.object:id(),"fight_enemy")
+end
+
+function xr_combat_camper.action_shoot:execute()
+	action_base.execute(self)
+
+	local new_state = "hide_fire"
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if self.st.is_prone and be and self.object:see(be) then
+		new_state = "prone_fire"
+	else
+		new_state = "hide_fire"
+	end
+
+	local st = db.storage[self.object:id()]
+	if (st and st.ini and st.active_section and st.ini:line_exist(st.active_section,"combat_camper_state_fire")) then
+		new_state = st.ini:r_string_ex(st.active_section,"combat_camper_state_fire")
+	end
+
+	state_mgr.set_state(self.object,new_state,nil,nil,{look_object = be})
+	--xr_sound.set_sound_play(self.object:id(),"fight")
+end
+
+function xr_combat_camper.action_look_around:reset()
+	self.forget_time     = device():time_global() + 50000
+	self.change_dir_time = device():time_global() + 100000
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not be then return end
+
+	if not self.st.last_seen_pos and be ~= nil then
+		self.st.last_seen_pos = be:position()
+	end
+
+	local dist = be:position():distance_to(self.object:position())
+	local dir = vector():set(be:position()):sub(self.object:position()):normalize()
+	local cover = level.high_cover_in_direction(self.object:level_vertex_id(), dir)
+
+	local rnd = math_random(1, 100)
+	local has_cover = cover > 0.2
+
+	local new_state = "hide_na"
+
+	if npc_prone_enabled() and not has_cover then
+		if dist < 25 then
+			if rnd < 10 then
+				new_state = "hide"
+			elseif rnd < 25  then --or self.st.hit_prone
+				new_state = "prone"
+				self.st.is_prone = true
+				self.st.hit_prone = false
+				self.st.prone_lock = device():time_global() + math_random(4000, 6000)
+			else
+				new_state = "hide_na"
+			end
+		elseif dist < 55 then
+			if rnd < 10 then
+				new_state = "hide"
+			elseif rnd < 35 or self.st.hit_prone then
+				new_state = "prone"
+				self.st.is_prone = true
+				self.st.hit_prone = false
+				self.st.prone_lock = device():time_global() + math_random(4000, 6000)
+			else
+				new_state = "hide_na"
+			end
+		else
+			if rnd < 10 then
+				new_state = "hide"
+			elseif rnd < 45 or self.st.hit_prone then
+				new_state = "prone"
+				self.st.is_prone = true
+				self.st.hit_prone = false
+				self.st.prone_lock = device():time_global() + math_random(4000, 6000)
+			else
+				new_state = "hide_na"
+			end
+		end
+	else
+		if dist < 25 then
+			new_state = "hide_na"
+		elseif dist < 55 then
+			if rnd < 10 then 
+				new_state = "hide"
+			else
+				new_state = "hide_na"
+			end
+		end
+	end
+
+	local st = db.storage[self.object:id()]
+	if (st and st.ini and st.active_section and st.ini:line_exist(st.active_section,"combat_camper_state_look")) then
+		new_state = st.ini:r_string_ex(st.active_section,"combat_camper_state_look")
+	end
+
+	state_mgr.set_state(self.object, new_state, nil, nil, {look_position = self.st.last_seen_pos})
+end
+
+function xr_combat_camper.action_look_around:execute()
+	action_base.execute(self)
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not be then return end
+
+	if self.forget_time < device():time_global() then
+		--printf("pl:Disabling_memory_object[8]")
+		--self.object:enable_memory_object( self.object:best_enemy(), false)
+		self.st.last_seen_pos = nil
+		return
+	end
+
+	if self.st.is_prone and self.st.prone_lock and device():time_global() > self.st.prone_lock then
+		self.st.is_prone = nil
+		self.st.hit_prone = nil
+		self.st.prone_lock = nil
+	end
+
+	if self.change_dir_time < device():time_global() then
+		self.change_dir_time = device():time_global() + math_random(40000, 70000)
+
+		local ang = math_random(-15, 15)
+		local dir = self.st.last_seen_pos
+			and vector():set(self.st.last_seen_pos):sub(self.object:position()):normalize()
+
+		dir = dir and vector_rotate_y(dir, ang):normalize()
+		dir = dir and vector():set(dir.x * 10, dir.y * 10, dir.z * 10)
+
+		local dist = be:position():distance_to(self.object:position())
+		local rnd = math_random(1, 100)
+
+		local new_state = "hide_na"
+
+		if dist < 25 then
+			new_state = "hide_na"
+
+		elseif dist < 55 then
+			if rnd < 10 then 
+				new_state = "hide"
+			else
+				new_state = "hide_na"
+			end
+		end
+
+		local st = db.storage[self.object:id()]
+		if (st and st.ini and st.active_section and st.ini:line_exist(st.active_section,"combat_camper_state_look")) then
+			new_state = st.ini:r_string_ex(st.active_section,"combat_camper_state_look")
+		end
+
+		state_mgr.set_state(self.object,new_state,nil,nil,{look_position = dir and self.object:position():add(dir)})
+	end
+end
+
+function xr_combat_camper.action_look_around:hit_callback(obj,amount,local_direction,who,bone_index)
+	if who == nil or not self.st.camper_combat_action then
+		return
+	end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if be and who:id() == be:id() then
+		if npc_prone_enabled() then
+			self.st.hit_prone = true
+			self.st.prone_lock = device():time_global() + math_random(4000, 6000)
+		end
+
+		self.st.last_seen_pos = be:position()
+		self:reset()
+	end
+end
