@@ -1,0 +1,54 @@
+local ok = pcall(require, "short_range_blood_wm")
+
+if not ok then
+    return
+end
+
+local blood = short_range_blood_wm
+
+if not blood then
+    return
+end
+
+
+local original_spawn = blood.spawn_exit_cascade
+
+if not original_spawn then
+    return
+end
+
+
+local function valid_object(obj)
+
+    if obj == nil then
+        return false
+    end
+
+    if type(obj) ~= "userdata" then
+        return false
+    end
+
+    if not obj.alive then
+        return false
+    end
+
+    local ok2, alive = pcall(function()
+        return obj:alive()
+    end)
+
+    if not ok2 then
+        return false
+    end
+
+    return alive
+end
+
+
+function blood.spawn_exit_cascade(obj, ...)
+
+    if not valid_object(obj) then
+        return
+    end
+
+    return original_spawn(obj, ...)
+end

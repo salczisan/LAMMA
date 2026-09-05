@@ -1,0 +1,12 @@
+--[[
+    Compat shim: dynamic_news_helper calls bare IsActor() which is not
+    a global in Anomaly 1.5.3. Fixes both GetWeaponClass (line 657)
+    and GetWeaponDescription (line 685) at the root.
+--]]
+if not IsActor then
+    function IsActor(obj)
+        return db.actor ~= nil
+            and obj ~= nil
+            and obj:id() == db.actor:id()
+    end
+end

@@ -1,0 +1,70 @@
+-- These constants need to reflect the XML setup (where applicable)
+local stalker_icon_height = 64
+local task_icon_height = 47
+local row_vertical_padding = 10
+local row_margin_bottom = 5
+local row_width = 764
+local task_category_offset = 25
+
+local function safe_adjust_height(element)
+    if element and element.AdjustHeightToText then
+        element:AdjustHeightToText()
+    end
+end
+
+local function safe_get_height(element, fallback)
+    if element and element.GetHeight then
+        return element:GetHeight()
+    end
+    return fallback or 0
+end
+
+function adjust_rows(pda_tab)
+    if not (pda_tab and pda_tab.rows) then return end
+
+    for _, row in ipairs(pda_tab.rows) do
+        if not row then goto continue end
+
+        safe_adjust_height(row.stalker_info)
+        safe_adjust_height(row.task_details_field)
+        safe_adjust_height(row.task_full_description_field)
+
+        local highest_column_height = math.max(
+            get_stalker_info_column_height(row),
+            get_task_details_column_height(row),
+            get_task_full_description_column_height(row)
+        )
+
+        local row_height = row_vertical_padding * 2 + row_margin_bottom + highest_column_height + task_category_offset
+        local frame_height = row_vertical_padding * 2 + highest_column_height + task_category_offset
+
+        if row.frame and row.frame.SetHeight then
+            row.frame:SetHeight(frame_height)
+        end
+        if row.SetWndSize then
+            row:SetWndSize(vector2():set(row_width, row_height))
+        end
+
+        ::continue::
+    end
+
+    -- Force scrollable area to resize
+    -- NOTE: bare CUIWindow() with no size/pos set caused CUILines::Draw crash
+    -- when the render thread hit the uninitialized child during CUIPdaWnd::Draw.
+    -- SetScrollPos alone is sufficient to trigger the scroll view recalc.
+    if pda_tab.list and pda_tab.list.SetScrollPos then
+        pda_tab.list:SetScrollPos(pda_tab.list:GetCurrentScrollPos())
+    end
+end
+
+function get_stalker_info_column_height(row)
+    return stalker_icon_height + safe_get_height(row.stalker_info)
+end
+
+function get_task_details_column_height(row)
+    return task_icon_height + safe_get_height(row.task_details_field)
+end
+
+function get_task_full_description_column_height(row)
+    return safe_get_height(row.task_full_description_field)
+end

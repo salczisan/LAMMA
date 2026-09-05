@@ -1,0 +1,375 @@
+-- zzz_invalid_vertex_fix.script  v2
+--
+-- Detects alife server objects whose world position falls outside their home
+-- level's CLevelGraph nav bounds, causing:
+--   {@ } --- Invalid position for CLevelGraph::vertex_id specified: [...]
+-- Releases offenders (+ full squad) to free pop-cap slots.
+--
+-- NOTE: the {@ } errors at level load happen in CALifeStorageManager::load
+-- (C++), before any Lua runs.  They reflect the PREVIOUS save state and will
+-- stop appearing for cleaned objects on the NEXT load after a save.
+-- This script cannot prevent those errors — it can only remove the cause.
+--
+-- Runs deferred (CFG_DELAY_SEC) after actor_on_first_update.
+-- Resets on level transition so every level is scanned on first visit.
+-- Cross-level objects are detected via game_graph vertex bounding boxes.
+
+-- ============================================================
+-- Config
+-- ============================================================
+local CFG_DRY_RUN    = false   -- true = log only, never release
+local CFG_DELAY_SEC  = 5       -- seconds after first_update before scan
+local BBOX_PAD_XZ    = 300     -- nav mesh extends beyond game vertex coverage
+local BBOX_PAD_Y     = 150
+local PREFIX         = "[ivfix]"
+
+-- ============================================================
+-- Constants
+-- ============================================================
+local MAX_U32 = 4294967295   -- u32(-1): invalid vertex sentinel
+local MAX_U16 = 65535        -- u16(-1): invalid group / secondary sentinel
+
+-- ============================================================
+-- State
+-- ============================================================
+local ran_this_level       = false
+local level_graph_cache    = nil
+local level_bbox_cache     = {}     -- [level_id] = bbox | false
+local game_point_available = nil    -- nil=untested, true/false
+local safe_clsids          = {}
+
+-- ============================================================
+-- Logging  (string concat only — Anomaly printf only handles %s from Lua)
+-- ============================================================
+local function log(msg)
+    printf(PREFIX .. " " .. tostring(msg))
+end
+
+local function fmt_pos(pos)
+    return "[" .. string.format("%.2f", pos.x)
+        .. "][" .. string.format("%.2f", pos.y)
+        .. "][" .. string.format("%.2f", pos.z) .. "]"
+end
+
+-- ============================================================
+-- Init
+-- ============================================================
+local function build_safe_clsids()
+    safe_clsids = {}
+    local names = {
+        "smart_terrain", "script_zone", "space_restrictor",
+        "level_changer",  "actor",       "trader",
+    }
+    for _, name in ipairs(names) do
+        local ok, v = pcall(function() return clsid[name] end)
+        if ok and v then safe_clsids[v] = true end
+    end
+end
+
+-- ============================================================
+-- Level graph (current level only)
+-- ============================================================
+local function get_level_graph()
+    if level_graph_cache then return level_graph_cache end
+    local ok, lg = pcall(function() return ai().level_graph() end)
+    if ok and lg then level_graph_cache = lg end
+    return level_graph_cache
+end
+
+-- ============================================================
+-- Game-graph bounding boxes  (cross-level detection)
+-- ============================================================
+local function compute_bbox(lid)
+    local gg = game_graph()
+    if not gg then return nil end
+
+    -- Test game_point() binding once
+    if game_point_available == nil then
+        local ok = pcall(function() gg:vertex(0):game_point() end)
+        game_point_available = ok
+        if not ok then
+            log("game_point() not bound — cross-level detection unavailable")
+        end
+    end
+    if not game_point_available then return nil end
+
+    local ok_n, n = pcall(function() return gg:vertex_count() end)
+    if not ok_n or not n or n == 0 then return nil end
+
+    local xmin, xmax =  math.huge, -math.huge
+    local ymin, ymax =  math.huge, -math.huge
+    local zmin, zmax =  math.huge, -math.huge
+    local found = 0
+
+    for i = 0, n - 1 do
+        local v = gg:vertex(i)
+        if v:level_id() == lid then
+            local p = v:game_point()
+            if p.x < xmin then xmin = p.x end
+            if p.x > xmax then xmax = p.x end
+            if p.y < ymin then ymin = p.y end
+            if p.y > ymax then ymax = p.y end
+            if p.z < zmin then zmin = p.z end
+            if p.z > zmax then zmax = p.z end
+            found = found + 1
+        end
+    end
+
+    if found == 0 then return nil end
+
+    local bbox = {
+        xmin = xmin - BBOX_PAD_XZ,  xmax = xmax + BBOX_PAD_XZ,
+        ymin = ymin - BBOX_PAD_Y,   ymax = ymax + BBOX_PAD_Y,
+        zmin = zmin - BBOX_PAD_XZ,  zmax = zmax + BBOX_PAD_XZ,
+    }
+    log("bbox lid=" .. tostring(lid)
+        .. " x[" .. string.format("%.0f", bbox.xmin) .. ".." .. string.format("%.0f", bbox.xmax) .. "]"
+        .. " z[" .. string.format("%.0f", bbox.zmin) .. ".." .. string.format("%.0f", bbox.zmax) .. "]"
+        .. " (" .. tostring(found) .. " game verts)")
+    return bbox
+end
+
+local function get_level_bbox(lid)
+    local cached = level_bbox_cache[lid]
+    if cached ~= nil then
+        return (cached ~= false) and cached or nil
+    end
+    local result = nil
+    local ok = pcall(function() result = compute_bbox(lid) end)
+    if not ok then result = nil end
+    level_bbox_cache[lid] = result or false
+    return result
+end
+
+-- ============================================================
+-- Position validity
+-- ============================================================
+-- Returns true if position is provably OUTSIDE nav bounds.
+-- Multi-layer fallback:
+--   current level  → ai().level_graph():valid_vertex_position()  [exact]
+--                  → m_level_vertex_id sentinel                  [fallback]
+--   other level    → game_graph bbox                             [heuristic]
+--                  → m_level_vertex_id sentinel                  [fallback]
+local function is_position_bad(se, obj_lid, current_lid)
+    local pos = se.position
+    if not pos then return false end
+
+    if obj_lid == current_lid then
+        local lg = get_level_graph()
+        if lg then
+            local ok, valid = pcall(function()
+                return lg:valid_vertex_position(pos)
+            end)
+            if ok then return not valid end
+        end
+        -- level graph API unavailable: sentinel only
+        return (se.m_level_vertex_id == MAX_U32)
+    end
+
+    -- cross-level
+    local bbox = get_level_bbox(obj_lid)
+    if bbox then
+        return not (
+            pos.x >= bbox.xmin and pos.x <= bbox.xmax and
+            pos.y >= bbox.ymin and pos.y <= bbox.ymax and
+            pos.z >= bbox.zmin and pos.z <= bbox.zmax
+        )
+    end
+    -- no bbox: sentinel fallback
+    return (se.m_level_vertex_id == MAX_U32)
+end
+
+-- ============================================================
+-- Protection check
+-- ============================================================
+local function is_protected(se)
+    local ok_s, story = pcall(function() return se:has_story_id() end)
+    if ok_s and story then return true end
+    local ok_c, cls   = pcall(function() return se:clsid()      end)
+    if ok_c and cls and safe_clsids[cls] then return true end
+    return false
+end
+
+-- ============================================================
+-- Helpers
+-- ============================================================
+local function get_current_level_id()
+    local sim = alife()
+    if not sim then return nil end
+    local actor_se = sim:actor()
+    if not actor_se then return nil end
+    local gvid = actor_se.m_game_vertex_id
+    if not gvid or gvid == MAX_U32 or gvid == MAX_U16 then return nil end
+    local ok, lid = pcall(function()
+        return game_graph():vertex(gvid):level_id()
+    end)
+    return ok and lid or nil
+end
+
+local function each_alife_object(sim, cb)
+    -- iterate_objects() skips empty ID slots — much faster than 0..65535
+    local ok = pcall(function() sim:iterate_objects(cb) end)
+    if not ok then
+        for id = 0, MAX_U16 do
+            local se = sim:object(id)
+            if se then cb(se) end
+        end
+    end
+end
+
+-- ============================================================
+-- Core fix
+-- ============================================================
+local function do_fix()
+    local sim = alife()
+    if not sim then log("alife() nil, abort"); return end
+
+    local current_lid = get_current_level_id()
+    if not current_lid then log("current_lid nil, abort"); return end
+
+    level_graph_cache = nil  -- refresh for this run
+
+    local bad    = {}   -- [id] = sec_string
+    local squads = {}   -- [squad_id] = true
+    local n_skip = 0
+
+    -- --------------------------------------------------------
+    -- Pass 1: find broken objects (ALL levels)
+    -- --------------------------------------------------------
+    each_alife_object(sim, function(se)
+        local gvid = se.m_game_vertex_id
+        if not gvid or gvid == MAX_U32 or gvid == MAX_U16 then return end
+
+        local ok_lid, obj_lid = pcall(function()
+            return game_graph():vertex(gvid):level_id()
+        end)
+        if not ok_lid then return end
+
+        if not is_position_bad(se, obj_lid, current_lid) then return end
+
+        local sec = ""
+        pcall(function() sec = se:section_name() end)
+
+        local cross = (obj_lid ~= current_lid)
+        log("BAD id=" .. tostring(se.id)
+            .. " lvid=" .. tostring(se.m_level_vertex_id)
+            .. " lid=" .. tostring(obj_lid)
+            .. (cross and " [cross-lvl]" or "")
+            .. " " .. fmt_pos(se.position)
+            .. " " .. sec)
+
+        if is_protected(se) then
+            log("  -> PROTECTED, skip")
+            n_skip = n_skip + 1
+            return
+        end
+
+	-- lc_ zone objects are re-created every session by the level-changer mod.
+        -- Releasing them frees the C++ server object while on_game_start-era scripts
+        -- still hold cached userdata refs → gc_traverse_tab crash on next GC step.
+        -- No value in releasing them since they respawn anyway.
+        if sec:sub(1, 3) == "lc_" then
+            log("SKIP lc_ zone id=" .. tostring(se.id) .. " " .. sec)
+            n_skip = n_skip + 1
+            return
+        end
+
+        bad[se.id] = sec
+
+        local grp = se.group_id
+        if grp and grp ~= 0 and grp ~= MAX_U16 and grp ~= MAX_U32 then
+            squads[grp] = true
+        end
+    end)
+
+    -- --------------------------------------------------------
+    -- Pass 2: expand affected squads
+    -- --------------------------------------------------------
+    for squad_id in pairs(squads) do
+        local se_squad = sim:object(squad_id)
+        if se_squad then
+            pcall(function()
+                for member in se_squad:squad_members() do
+                    if member and member.id and not bad[member.id] then
+                        local sec2 = ""
+                        pcall(function() sec2 = member:section_name() end)
+                        log("  +member id=" .. tostring(member.id)
+                            .. " (squad " .. tostring(squad_id) .. ") " .. sec2)
+                        bad[member.id] = sec2
+                    end
+                end
+            end)
+            if not bad[squad_id] then
+                local sec3 = ""
+                pcall(function() sec3 = se_squad:section_name() end)
+                bad[squad_id] = sec3
+            end
+        end
+    end
+
+    -- --------------------------------------------------------
+    -- Pass 3: release — members before squad shells
+    -- --------------------------------------------------------
+    local members_first = {}
+    local shells_last   = {}
+
+    for id, sec in pairs(bad) do
+        local se = sim:object(id)
+        if se then
+            local grp = se.group_id
+            if grp and grp ~= 0 and grp ~= MAX_U16 and grp ~= MAX_U32 then
+                members_first[#members_first + 1] = {id = id, sec = sec}
+            else
+                shells_last[#shells_last + 1]     = {id = id, sec = sec}
+            end
+        end
+    end
+
+    local n_ok, n_fail = 0, 0
+    local function try_release(id, sec)
+        if CFG_DRY_RUN then
+            log("  [DRY] id=" .. tostring(id) .. " (" .. tostring(sec) .. ")")
+            n_ok = n_ok + 1
+            return
+        end
+        local ok_r, err = pcall(alife_release_id, id)
+        if ok_r then
+            log("  released id=" .. tostring(id) .. " (" .. tostring(sec) .. ")")
+            n_ok = n_ok + 1
+        else
+            log("  FAIL id=" .. tostring(id) .. " : " .. tostring(err))
+            n_fail = n_fail + 1
+        end
+    end
+
+    for _, e in ipairs(members_first) do try_release(e.id, e.sec) end
+    for _, e in ipairs(shells_last)   do try_release(e.id, e.sec) end
+
+    log("done. released=" .. tostring(n_ok)
+        .. " failed=" .. tostring(n_fail)
+        .. " skipped=" .. tostring(n_skip)
+        .. " dry=" .. tostring(CFG_DRY_RUN))
+end
+
+-- ============================================================
+-- Callbacks
+-- ============================================================
+local function on_first_update()
+    if ran_this_level then return end
+    ran_this_level = true
+    CreateTimeEvent("ivfix", "ivfix_run", CFG_DELAY_SEC, function()
+        do_fix()
+        return true
+    end)
+end
+
+local function on_level_changing()
+    ran_this_level    = false
+    level_graph_cache = nil
+end
+
+function on_game_start()
+    build_safe_clsids()
+    RegisterScriptCallback("actor_on_first_update", on_first_update)
+    RegisterScriptCallback("on_level_changing",     on_level_changing)
+end

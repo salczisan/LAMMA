@@ -1,0 +1,43 @@
+-- xr_effects_goodwill_patch.script
+-- Registers complete_task_inc_goodwill into xr_effects if missing.
+-- Drop into gamedata/scripts/ -- no other files need modification.
+
+local function install()
+    if xr_effects.complete_task_inc_goodwill then
+        return  -- already defined by another mod, don't overwrite
+    end
+
+    xr_effects.complete_task_inc_goodwill = function(actor, npc, p)
+        if not (p and p[1] and p[2]) then
+            printf("![xr_effects_goodwill_patch] complete_task_inc_goodwill: bad args")
+            return
+        end
+
+        local delta     = tonumber(p[1])
+        local community = tostring(p[2])
+
+        if not delta then
+            printf("![xr_effects_goodwill_patch] complete_task_inc_goodwill: delta not a number: %s", tostring(p[1]))
+            return
+        end
+
+        -- relation_registry.change_community_goodwill is the standard Anomaly call
+        -- it takes (community_string, object_id, delta)
+        local actor_id = db.actor and db.actor:id()
+        if not actor_id then
+            printf("![xr_effects_goodwill_patch] complete_task_inc_goodwill: actor not ready")
+            return
+        end
+
+        relation_registry.change_community_goodwill(community, actor_id, delta)
+        printf("[xr_effects_goodwill_patch] goodwill %s %+d for community '%s'",
+               delta >= 0 and "+" or "", delta, community)
+    end
+
+    printf("[xr_effects_goodwill_patch] complete_task_inc_goodwill registered OK")
+end
+
+-- on_game_start is the safe early hook for xr_effects patching
+function on_game_start()
+    install()
+end

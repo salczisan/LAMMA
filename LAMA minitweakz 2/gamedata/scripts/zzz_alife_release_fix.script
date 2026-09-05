@@ -1,0 +1,15 @@
+-- zzz_alife_release_fix.script
+-- Wraps alife_release_id to silently skip objects that are already gone from alife.
+-- Prevents log spam from trade callbacks (aaaa_script_fixes_mp / axr_trade_manager)
+-- trying to release items that were already transferred out of alife during a trade.
+--
+-- Drop into: STALKER Anomaly\gamedata\scripts\
+-- Requires no changes to any other file.
+
+local _orig_alife_release_id = alife_release_id
+
+function alife_release_id(id, msg)
+    if not id then return end
+    if not alife_object(id) then return end  -- object already gone, skip silently
+    return _orig_alife_release_id(id, msg)
+end
