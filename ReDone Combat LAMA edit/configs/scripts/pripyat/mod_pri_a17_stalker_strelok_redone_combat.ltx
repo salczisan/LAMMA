@@ -1,0 +1,29 @@
+![logic@pri_a17_stalker_strelok]
+redone_combat_logic = false
+active = beh@pri_a17_strelok_sniper ;smartcover@pri_a17_strelok_sniper
+suitable = {=check_npc_name(stalker_strelok_oa) -strelok_respawn} true
+prior = 200
+
+[beh@pri_a17_strelok]
+behavior_state = beh_move
+target = waypoint
+walk_dist = 100
+jog_dist = 220
+walk_anim = patrol
+jog_anim = assault
+run_anim = assault
+delay_anim = guard
+use_in_combat = true
+combat_ignore_cond = false
+combat_ignore_keep_when_attacked = false
+invulnerable = true
+gather_items_enabled = false
+help_wounded_enabled = false
+corpse_detection_enabled = false
+out_restr = pri_a17_roofwalkers_stop
+in_restr = pri_a17_roofwalkers_stop_2
+
+[beh@pri_a17_strelok_sniper]:beh@pri_a17_strelok
+pt1 = 88860000,hide_na					| pos: 165.70513916016, 6.1947412490845, -31.308588027954 look: 166.40843200684, 6.189510345459, -30.426042556763, 395967
+path_end = loop
+on_info = {+pri_a17_monolith_assault_squad_death} animpoint@pri_a17_strelok_sniper2

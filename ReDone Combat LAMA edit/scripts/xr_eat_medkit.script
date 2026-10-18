@@ -1,0 +1,365 @@
+--[[----------------------------------------------------------------------------------------------------------
+	XR EAT MEDKIT
+------------------------------------------------------------------------------------------------------------]]
+-- by Alundaio original by Rulix
+-- Copyright (C) 2012 Alundaio
+-- This work is licensed under a Creative Commons Attribution-NonCommercial-ShareAlike 3.0 Unported License
+-------------------------------
+local db = db
+local level = level
+local time_global = time_global
+local math_random = math.random
+local string_find = string.find
+-------------------------------
+local function ai_medkit_enabled() 
+	return stealth_mcm.get_config("enable_ai_medkit") 
+end
+
+local function debug_medkit_enabled()
+	return stealth_mcm.get_config("debug_medkit")
+end
+
+local _eating = {}
+local _enabled
+local _max_strings
+-------------------------------------------------------------------------------------
+-- PRIVATE
+-------------------------------------------------------------------------------------
+local LOUD_DEBUG = false
+
+function pr(...)
+	if not debug_medkit_enabled() then
+		return true
+	end
+
+	local txt = strformat(...)
+
+	if LOUD_DEBUG then 
+		tasks_chimera_scan.message_by_id(0, txt)
+	end
+
+	printf("xr_eat_medkit: %s", txt)
+
+	return true
+end
+
+function get_max_strings()
+	local i = 0
+	while not (game.translate_string("st_eat_medkit_cry_"..(i+1)) == "st_eat_medkit_cry_"..(i+1)) do
+		i = i + 1
+	end
+	return i
+end
+
+function on_register(se, kind)
+	if not (kind == "se_stalker") then return end
+	if math.random() > 0.5 then
+		pr('on_register(%s): healing charge ok',se:name())
+		se_save_var( se.id, se:name(), "healing_charge", true)
+	end
+end
+
+-----------------------------------------------------------------------------
+-- NPC ON DEATH
+-----------------------------------------------------------------------------
+--[[function on_npc_death(npc)
+	if not ai_medkit_enabled() then return end
+	if not npc then return end
+
+	local id = npc:id()
+
+	CreateTimeEvent(id, "cleanup_medkits", 0.2, function()
+		local obj = level.object_by_id(id)
+		if not obj or not obj:inventory() then return end
+
+		for i = obj:inventory():dwfGetObjectCount() - 1, 0, -1 do
+			local item = obj:inventory():dwfGetObjectByIndex(i)
+			if item and item:section() == "medkit" then
+				alife_release_id(item:id())
+			end
+		end
+	end)
+end]]--
+
+-------------------------------------------------------------------------------------
+-- ON GAME START
+-------------------------------------------------------------------------------------
+function on_game_start()
+	local ini = ini_file("ai_tweaks\\xr_eat_medkit.ltx")
+	_enabled = ini:r_bool_ex("plugin","enable",false)
+	if not (_enabled) then ini = nil return end
+
+	--RegisterScriptCallback("npc_on_death", on_npc_death)
+	RegisterScriptCallback("npc_on_update",npc_update)
+	RegisterScriptCallback("server_entity_on_register",on_register)
+
+	_max_strings = get_max_strings()
+
+	local sect = "plugin"
+	
+	_eating.ic = ini:r_bool_ex(sect,"in_combat",false)
+	_eating.oc = ini:r_bool_ex(sect,"out_combat",false)
+	_eating.max_h = (ini:r_float_ex(sect,"medkit_health") or 50)/100
+	_eating.min_b = ini:r_float_ex(sect,"bandage_bleeding") or 0.2
+	_eating.medkits = parse_list(ini,sect,"medkits")
+	_eating.bandages = parse_list(ini,sect,"bandages")
+	_eating.medkit_delay = {}
+	_eating.bandage_delay = {}
+	local ranks = utils_obj.get_rank_list()
+	for k,v in ipairs(ranks) do
+		_eating.medkit_delay[v] = parse_list(ini,v,"medkit_delay")
+		_eating.bandage_delay[v] = parse_list(ini,v,"bandage_delay")
+	end
+
+	ini = nil
+end
+
+-------------------------------------------------------------------------------------
+-- NPC ON UPDATE
+-------------------------------------------------------------------------------------
+function npc_update(npc,st)
+	if not (_enabled) then
+		return
+	end
+
+	if not (npc:alive()) then
+		return
+	end
+
+	if npc:has_info("npcx_is_companion") then
+		return
+	end
+
+	local comm = npc:character_community()
+	if (comm == "trader" or comm == "zombied") then
+		return
+	end
+	
+	if not (st.eat_medkit) then
+		st.eat_medkit = eat_medkit(npc,st)
+	else
+		st.eat_medkit:update(npc)
+	end
+end
+
+-------------------------------------------------------------------------------------
+-- CLASS EAT MEDKIT
+-------------------------------------------------------------------------------------
+class "eat_medkit"
+
+function eat_medkit:__init(object,storage)
+	self.st = storage
+	self.rank = ranks.get_obj_rank_name(object)
+end
+
+-- Auto-generate medkits based on rank
+function eat_medkit:give_npc_medkits(npc)
+	local rank = ranks.get_obj_rank_name(npc) or "experienced"
+	local count = 1
+	if rank == "expert" or rank == "master" or rank == "legend" then
+		count = 3
+	elseif rank == "experienced" or rank == "professional" or rank == "veteran" then
+		count = 2
+	end
+
+	local medkit_types = {
+		"medkit_script","medkit","medkit_army","medkit_scientic"
+	}
+
+	local has_medkit = false
+
+	for _, med_name in ipairs(medkit_types) do
+		local med_obj = npc:object(med_name)
+		if med_obj then
+			has_medkit = true
+			break
+		end
+	end
+
+	if not has_medkit then
+		for i=1,count do
+			alife_create_item("medkit_script", npc)
+		end
+        	pr("give_npc_medkits: gave %d medkits to %s", count, npc:name())
+    	end
+end
+
+function eat_medkit:update(npc)
+	if not (_enabled) then
+		return
+	end
+
+	if not npc:alive() then
+		return
+	end
+
+	local stage = self.stage or 0
+	local rank_medkit_delay = _eating.medkit_delay[self.rank]
+	local rank_bandage_delay = _eating.bandage_delay[self.rank]
+
+	if (IsWounded(npc)) then
+		self.item = nil
+		self.timer = nil
+		self.stage = 0
+		return
+	end
+
+	self.st.medkits_given = self.st.medkits_given or false
+
+	local enemy = npc:best_enemy()
+	if ai_medkit_enabled() and enemy and not self.st.medkits_given then
+		self:give_npc_medkits(npc)
+		self.st.medkits_given = true
+	end
+
+	if (_eating.oc and not _eating.ic and enemy) or (_eating.ic and not _eating.oc and not enemy) then
+		self.item = nil
+		self.timer = nil
+		self.state = 0
+		return
+	end
+
+	if (stage == 0) then
+		if (npc.health < _eating.max_h) then
+			self.heal_kind = "health"
+			for i=1,#_eating.medkits do
+				local medkit = npc:object(_eating.medkits[i])
+				if (medkit) then
+					local d_min = rank_medkit_delay[1] or 10000
+					local d_max = rank_medkit_delay[2] or 15000
+					self.timer = time_global() + math_random(d_min,d_max)
+					self.item = _eating.medkits[i]
+					self.stage = 1
+					pr('eat_medkit:update(%s): uses medkit',npc:name())
+					return
+				end
+			end
+			if se_load_var(npc:id(),npc:name(),"healing_charge") then
+				local d_min = rank_bandage_delay[1] or 10000
+				local d_max = rank_bandage_delay[2] or 15000
+				self.timer = time_global() + math_random(d_min,d_max)
+				self.stage = 1
+				pr('eat_medkit:update(%s): uses medkit (charge)',npc:name())
+				return
+			end
+		end
+
+		if (npc.bleeding > _eating.min_b) then
+			for i=1, #_eating.bandages do
+				local bandage = npc:object(_eating.bandages[i])
+				if (bandage) then
+					local d_min = rank_bandage_delay[1] or 10000
+					local d_max = rank_bandage_delay[2] or 15000
+					self.timer = time_global() + math_random(d_min,d_max)
+					self.item = _eating.bandages[i]
+					self.stage = 1
+					self.heal_kind = "bleed"
+					pr('eat_medkit:update(%s): uses bandage',npc:name())
+					return
+				end
+			end
+		end
+
+	elseif (stage == 1) then
+		local now = time_global()
+		if (self.timer and now > self.timer) then
+			if (self.item) then
+				local med = npc:object(self.item)
+				if med then
+					consume_medkit(npc,med,self.heal_kind)
+					broadcast(npc)
+				end
+				self.item = nil
+			else
+				consume_medkit(npc, nil, self.heal_kind)
+				broadcast(npc)
+			end
+			self.stage = 0
+		end
+	end
+end
+
+-------------------------------------------------------------------------------------
+-- PDA BROADCAST
+-------------------------------------------------------------------------------------
+function broadcast(npc)
+	local actor = db.actor
+	if not actor then return end
+
+	local dist = npc:position():distance_to(actor:position())
+
+	if dist < 10 or dist > 20 then return end
+	if math_random(100) > 65 then return end
+
+	local comm = npc:character_community()
+	if string_find(comm,'greh') or string_find(comm,'monolith') then return end
+
+	local msg = game.translate_string("st_eat_medkit_cry_" .. math_random(_max_strings))
+	local name = npc:character_name()
+	local se = strformat("%s, %s", name, game.translate_string(comm))
+
+	dynamic_news_helper.send_tip(msg, se, nil, nil, npc:character_icon(), nil, "npc")
+end
+
+-------------------------------------------------------------------------------------
+function heal_hp(id, left)
+	local nextl = left - 1
+
+	local npc = level.object_by_id(id)
+
+	if npc and npc:alive() and nextl > 1 then
+		pr('heal_hp(%s)',npc:name())
+		npc:change_health(0.05)
+		npc.bleeding = 0.05
+		CreateTimeEvent(npc:id(), npc:name().."_self_healing_event_hp_"..nextl, level.get_time_factor(), heal_hp, npc:id(), nextl)
+		--npc:change_health(1.0)
+		--npc:set_health_ex(1.0)
+		--npc.bleeding = 0
+	end
+
+	return true
+end
+
+
+function heal_bleed(id, left)
+	local nextl = left - 1
+
+	local npc = level.object_by_id(id)
+
+	if npc and npc:alive() and nextl > 1 then
+		pr('heal_bleed(%s)',npc:name())
+		npc.bleeding = 0.15
+		CreateTimeEvent(npc:id(), npc:name().."_self_healing_event_bleed_"..nextl, level.get_time_factor(), heal_bleed, npc:id(), nextl)
+		--npc.bleeding = 0
+	end
+
+	return true
+end
+
+
+function consume_medkit(npc, medkit, kind)
+	pr('consume_medkit(%s)',npc:name())
+
+	if medkit then
+		alife_release_id(medkit:id())
+	end
+
+	se_save_var(npc:id(), npc:name(), "healing_charge", nil)
+
+	if kind =="health" then
+		CreateTimeEvent(npc:id(), npc:name().."_self_healing_event_hp_15", 0, heal_hp, npc:id(), 15)
+		--heal_hp(npc:id(), 1)
+
+	elseif kind == "bleed" then
+		CreateTimeEvent(npc:id(), npc:name().."_self_healing_event_bleed_15", 0, heal_bleed, npc:id(), 15)
+		--heal_bleed(npc:id(), 1)
+	end
+
+	--[[if (health_restore) then
+		npc:change_health(health_restore*time*10)
+	end
+
+	if (bleeding_restore) then
+		npc.bleeding = bleeding_restore*time*10
+	end]]--
+end

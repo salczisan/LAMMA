@@ -1,0 +1,572 @@
+--[[----------------------------------------------------------------------------------------------------------
+	RE:DONE COMBAT AI - PRONE GENERIC GOAP 
+------------------------------------------------------------------------------------------------------------]]
+
+actid = 188191
+evaid = 188191
+
+local db = db
+local level = level
+local vector = vector
+local time_global = time_global
+local math_random = math.random
+
+local DEBUG = false
+
+local CHECK_INTERVAL_MS = 10000
+local REQUEST_WINDOW_MS = 1200
+local PRONE_MIN_MS = 12000
+local PRONE_MAX_MS = 16000
+local COOLDOWN_MIN_MS = 25000
+local COOLDOWN_MAX_MS = 35000
+local HIGH_COVER_LIMIT = 0.2
+
+local initialized = false
+
+local function prone_enabled()
+	return stealth_mcm.get_config("enable_ai_prone")
+end
+
+local function debug_print(fmt, ...)
+	if not DEBUG then
+		return
+	end
+
+	printf("[Combat AI][PRONE] " .. fmt, ...)
+end
+
+local function fmt_num(value)
+	return string.format("%.2f", tonumber(value) or 0)
+end
+
+local function safe_value(fn)
+	local ok, value = pcall(fn)
+	if ok then
+		return value
+	end
+
+	return nil
+end
+
+local function is_blocked_npc(npc)
+	if not npc or not npc:alive() then
+		return true
+	end
+
+	if npc:section() == "actor_visual_stalker" then
+		return true
+	end
+
+	local community = npc:character_community()
+	if community == "zombied" then
+		return true
+	end
+
+	if npc:has_info("npcx_is_companion") then
+		return true
+	end
+
+	return false
+end
+
+local function panic_active(npc)
+	local storage = db.storage[npc:id()]
+	return storage and (
+		storage.aoe_panic == true
+		or storage.panicked == true
+	)
+end
+
+local function healing_reserved(npc)
+	if redone_ai_healing and redone_ai_healing.is_healing_reserved then
+		return redone_ai_healing.is_healing_reserved(npc) == true
+	end
+
+	local storage = db.storage[npc:id()]
+	local healing = storage and storage.redone_ai_healing
+	return healing and (
+		healing.healing_active == true
+		or healing.heal_safe_since ~= nil
+	) or false
+end
+
+local function get_enemy(npc)
+	local enemy = redone_ai_combat.get_combat_enemy(npc)
+	if enemy and enemy:alive() then
+		return enemy
+	end
+
+	return nil
+end
+
+local function actor_flanking_prone(npc, enemy, storage)
+	if not (npc and enemy and db.actor) then
+		return false
+	end
+
+	if enemy:id() ~= db.actor:id() then
+		return false
+	end
+
+	if storage and storage.prone_front_x then
+		local to_actor = vector():set(db.actor:position())
+		to_actor:sub(npc:position())
+		to_actor:normalize()
+
+		local dot =
+			(storage.prone_front_x * to_actor.x)
+			+ (storage.prone_front_y * to_actor.y)
+			+ (storage.prone_front_z * to_actor.z)
+
+		return dot < 0.054
+	end
+
+	return redone_ai_detection.actor_is_flanking(npc, db.actor) == true
+end
+
+local function get_locked_prone_enemy(npc, storage)
+	if not (npc and storage and storage.prone_target_id) then
+		return nil
+	end
+
+	local enemy = level.object_by_id(storage.prone_target_id)
+	if enemy and enemy:alive() then
+		return enemy
+	end
+
+	return nil
+end
+
+local function property_enemy_active(npc)
+	local manager = npc and npc:motivation_action_manager()
+	if not manager then
+		return false
+	end
+
+	local evaluator = manager:evaluator(stalker_ids.property_enemy)
+	if not evaluator then
+		return false
+	end
+
+	return evaluator:evaluate() == true
+end
+
+local function prone_chance(enemy_dist)
+	if enemy_dist < 25 then
+		return 15
+	elseif enemy_dist < 55 then
+		return 25
+	end
+
+	return 35
+end
+
+local function eligible_for_prone(npc, enemy)
+	if not prone_enabled() or is_blocked_npc(npc) then
+		return false
+	end
+
+	if IsWounded(npc) or panic_active(npc) or healing_reserved(npc) then
+		return false
+	end
+
+	if not enemy then
+		return false
+	end
+
+	-- Do not START prone if the actor is already flanking this NPC.
+	if actor_flanking_prone(npc, enemy) then
+		return false
+	end
+
+	local npc_pos = npc:position()
+	local enemy_pos = enemy:position()
+	local dir = vector():set(enemy_pos):sub(npc_pos):normalize()
+	local cover = level.high_cover_in_direction(npc:level_vertex_id(), dir)
+
+	if cover > HIGH_COVER_LIMIT then
+		return false
+	end
+
+	return true, npc_pos:distance_to(enemy_pos), cover
+end
+
+-------------------------------------------------------------------------------------
+-- PRONE EVALUATOR
+-------------------------------------------------------------------------------------
+class "evaluator_redone_ai_prone" (property_evaluator)
+
+function evaluator_redone_ai_prone:__init(npc, name, storage) super(nil, name)
+	self.st = storage
+end
+
+function evaluator_redone_ai_prone:evaluate()
+	local npc = self.object
+	local st = self.st
+	local now = time_global()
+	local enemy = st.prone_active and get_locked_prone_enemy(npc, st) or get_enemy(npc)
+	local in_combat = property_enemy_active(npc)
+
+	if not in_combat then
+		st.prone_request_until = nil
+		return false
+	end
+
+	if healing_reserved(npc) then
+		st.prone_request_until = nil
+
+		if st.prone_active then
+			st.prone_interrupt_reason = "HEALING"
+		end
+
+		return false
+	end
+
+	if st.prone_active then
+		if not enemy then
+			st.prone_interrupt_reason = "NO_ENEMY"
+			return false
+		end
+
+		if IsWounded(npc) then
+			st.prone_interrupt_reason = "WOUNDED"
+			return false
+		end
+
+		if panic_active(npc) then
+			st.prone_interrupt_reason = "FLEE"
+			return false
+		end
+
+		-- Keep the anti-twist safety while prone, but measure it against the
+		-- stable facing direction captured at prone start.
+		if actor_flanking_prone(npc, enemy, st) then
+			st.prone_interrupt_reason = "FLANK"
+			return false
+		end
+
+		return now < (st.prone_end_time or 0)
+	end
+
+	if st.prone_request_until and now < st.prone_request_until then
+		return true
+	end
+
+	st.prone_request_until = nil
+
+	if now < (st.prone_cooldown_until or 0) then
+		return false
+	end
+
+	if now < (st.prone_next_check or 0) then
+		return false
+	end
+
+	st.prone_next_check = now + CHECK_INTERVAL_MS
+
+	local eligible, enemy_dist, cover = eligible_for_prone(npc, enemy)
+	if not eligible then
+		return false
+	end
+
+	local chance = prone_chance(enemy_dist)
+	local roll = math_random(1, 100)
+
+	if roll > chance then
+		return false
+	end
+
+	st.prone_request_until = now + REQUEST_WINDOW_MS
+
+	local enemy_name = safe_value(function() return enemy:name() end) or enemy:section()
+
+	debug_print(
+		"REQUEST npc=[%s] id=[%s] dist=[%s] cover=[%s] roll=[%s/%s] target=[%s:%s] property_enemy=[true] see=[%s]",
+		npc:name(),
+		npc:id(),
+		fmt_num(enemy_dist),
+		fmt_num(cover),
+		roll,
+		chance,
+		enemy:id(),
+		tostring(enemy_name),
+		tostring(npc:see(enemy))
+	)
+
+	return true
+end
+
+-------------------------------------------------------------------------------------
+-- PRONE ACTION
+-------------------------------------------------------------------------------------
+class "action_redone_ai_prone" (action_base)
+
+function action_redone_ai_prone:__init(npc, name, storage) super(nil, name)
+	self.st = storage
+	self.last_state = nil
+	self.last_target_id = nil
+end
+
+function action_redone_ai_prone:initialize()
+	action_base.initialize(self)
+
+	local npc = self.object
+	local now = time_global()
+
+	self.st.prone_active = true
+	self.st.prone_request_until = nil
+	self.st.prone_end_time = now + math_random(PRONE_MIN_MS, PRONE_MAX_MS)
+	self.st.prone_interrupt_reason = nil
+	self.last_state = nil
+	self.last_target_id = nil
+
+	local enemy = get_enemy(npc)
+	self.st.prone_target_id = enemy and enemy:id() or nil
+	self.st.prone_front_x = nil
+	self.st.prone_front_y = nil
+	self.st.prone_front_z = nil
+
+	if enemy then
+		local front = npc:direction()
+
+		self.st.prone_front_x = front.x
+		self.st.prone_front_y = front.y
+		self.st.prone_front_z = front.z
+	end
+
+	npc:set_desired_position()
+	npc:set_desired_direction()
+
+	debug_print(
+		"START npc=[%s] id=[%s] duration=[%sms]",
+		npc:name(),
+		npc:id(),
+		self.st.prone_end_time - now
+	)
+end
+
+function action_redone_ai_prone:execute()
+	action_base.execute(self)
+
+	local npc = self.object
+	local enemy = get_locked_prone_enemy(npc, self.st)
+	if not enemy then
+		return
+	end
+
+	local new_state
+	local target
+
+	if npc:see(enemy) then
+		new_state = "prone_fire"
+		target = {look_object = enemy}
+	else
+		new_state = "prone"
+		target = {look_position = enemy:position()}
+	end
+
+	local target_id = enemy:id()
+	if self.last_state == new_state and self.last_target_id == target_id then
+		return
+	end
+
+	self.last_state = new_state
+	self.last_target_id = target_id
+
+	debug_print(
+		"STATE npc=[%s] id=[%s] -> [%s]",
+		npc:name(),
+		npc:id(),
+		new_state
+	)
+
+	local extra = new_state == "prone_fire" and {fast_set = true} or nil
+	state_mgr.set_state(npc, new_state, nil, nil, target, extra)
+end
+
+local function release_state_manager(npc)
+	local storage = db.storage[npc:id()]
+	local manager = storage and storage.state_mgr
+
+	if not manager then
+		return
+	end
+
+	manager:set_state("idle", nil, nil, nil, {fast_set = true})
+
+	if manager.animation then
+		manager.animation:set_state(nil, true)
+		manager.animation:set_control()
+	end
+end
+
+function action_redone_ai_prone:finalize()
+	local npc = self.object
+	local now = time_global()
+	local completed = now >= (self.st.prone_end_time or 0)
+	local end_reason = completed and "TIME" or (self.st.prone_interrupt_reason or "INTERRUPT")
+
+	self.st.prone_active = false
+	self.st.prone_request_until = nil
+	self.st.prone_end_time = nil
+	self.st.prone_interrupt_reason = nil
+	self.st.prone_target_id = nil
+	self.st.prone_front_x = nil
+	self.st.prone_front_y = nil
+	self.st.prone_front_z = nil
+	self.st.prone_next_check = now + CHECK_INTERVAL_MS
+	self.st.prone_cooldown_until = now + math_random(COOLDOWN_MIN_MS, COOLDOWN_MAX_MS)
+	self.last_state = nil
+	self.last_target_id = nil
+
+	if npc then
+		release_state_manager(npc)
+		npc:set_desired_position()
+		npc:set_desired_direction()
+	end
+
+	action_base.finalize(self)
+
+	if npc then
+		debug_print(
+			"END npc=[%s] id=[%s] reason=[%s] cooldown=[%sms]",
+			npc:name(),
+			npc:id(),
+			end_reason,
+			self.st.prone_cooldown_until - now
+		)
+	end
+end
+
+-------------------------------------------------------------------------------------
+-- GENERIC SCHEME BINDER
+-------------------------------------------------------------------------------------
+function setup_generic_scheme(npc, ini, scheme, section, stype, temp)
+	xr_logic.assign_storage_and_bind(npc, ini, scheme, section, temp)
+end
+
+function add_to_binder(npc, ini, scheme, section, storage, temp)
+	if not npc then
+		return
+	end
+
+	local manager = npc:motivation_action_manager()
+	if not manager then
+		return
+	end
+
+	if is_blocked_npc(npc) then
+		manager:add_evaluator(evaid, property_evaluator_const(false))
+		temp.needs_configured = false
+		return
+	end
+
+	storage.prone_active = false
+	storage.prone_request_until = nil
+	storage.prone_end_time = nil
+	storage.prone_interrupt_reason = nil
+	storage.prone_target_id = nil
+	storage.prone_front_x = nil
+	storage.prone_front_y = nil
+	storage.prone_front_z = nil
+	storage.prone_next_check = 0
+	storage.prone_cooldown_until = 0
+
+	manager:add_evaluator(evaid,evaluator_redone_ai_prone(npc, "eva_redone_ai_prone", storage))
+	temp.action = action_redone_ai_prone(npc, "act_redone_ai_prone", storage)
+
+	temp.action:add_precondition(world_property(stalker_ids.property_alive, true))
+	temp.action:add_precondition(world_property(stalker_ids.property_enemy, true))
+	temp.action:add_precondition(world_property(stalker_ids.property_anomaly, false))
+	temp.action:add_precondition(world_property(evaid, true))
+
+	temp.action:add_effect(world_property(evaid, false))
+
+	manager:add_action(actid, temp.action)
+end
+
+-------------------------------------------------------------------------------------
+-- CONFIGURE ACTIONS
+-------------------------------------------------------------------------------------
+function configure_actions(npc, ini, scheme, section, stype, temp)
+	if not npc or not temp.action then
+		return
+	end
+
+	local manager = npc:motivation_action_manager()
+	if not manager then
+		return
+	end
+
+	temp.action:add_precondition(world_property(xr_evaluators_id.sidor_wounded_base, false))
+	temp.action:add_precondition(world_property(xr_evaluators_id.wounded_exist, false))
+
+	if demonized_stalker_aoe_panic and demonized_stalker_aoe_panic.evaid then
+		temp.action:add_precondition(world_property(demonized_stalker_aoe_panic.evaid, false))
+	end
+
+	if redone_ai_healing and redone_ai_healing.evaid then
+		temp.action:add_precondition(world_property(redone_ai_healing.evaid, false))
+	end
+
+	local actions = {
+		xr_danger.actid,
+		stalker_ids.action_combat_planner,
+		stalker_ids.action_danger_planner,
+		xr_actions_id.state_mgr + 2,
+		xr_actions_id.alife,
+
+		xr_actions_id.combat_camper_base + 0,
+		xr_actions_id.combat_camper_base + 1,
+
+		xr_actions_id.combat_monolith_base + 0,
+		xr_actions_id.combat_monolith_base + 1,
+		xr_actions_id.combat_monolith_base + 2,
+		xr_actions_id.combat_monolith_base + 3,
+	}
+
+	for i = 1, #actions do
+		local action = manager:action(actions[i])
+		if action then
+			action:add_precondition(world_property(evaid, false))
+		end
+	end
+end
+
+function disable_generic_scheme(npc, scheme, stype)
+	local storage = db.storage[npc:id()][scheme]
+	if storage then
+		storage.enabled = false
+		storage.prone_active = false
+		storage.prone_request_until = nil
+		storage.prone_end_time = nil
+		storage.prone_interrupt_reason = nil
+		storage.prone_target_id = nil
+		storage.prone_front_x = nil
+		storage.prone_front_y = nil
+		storage.prone_front_z = nil
+	end
+end
+
+function npc_add_precondition(action)
+	if action then
+		action:add_precondition(world_property(evaid, false))
+	end
+end
+
+function on_game_start()
+	if initialized then
+		return
+	end
+	initialized = true
+
+	debug_print(
+		"TEST v1.6 GENERIC loaded check=[%sms] prone=[%s-%sms] cooldown=[%s-%sms] cover_limit=[%s] actor_flank_gate=[stable] target_lock=[on] healing_reservation=[on]",
+		CHECK_INTERVAL_MS,
+		PRONE_MIN_MS,
+		PRONE_MAX_MS,
+		COOLDOWN_MIN_MS,
+		COOLDOWN_MAX_MS,
+		fmt_num(HIGH_COVER_LIMIT)
+	)
+end
