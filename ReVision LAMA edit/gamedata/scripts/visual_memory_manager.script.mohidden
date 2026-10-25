@@ -1,0 +1,1455 @@
+-- RE:VISION for Enhanced Visual Awareness and Motion Perception
+-- Adapted from "Stealth" by bvcx and "Improved Visual Awareness" by iq2luc
+-- Credits: bvcx, iq2luc, and eAkman (RE:Done Combat AI)
+
+-- Distance-based Visibility Threshold System calculating the maximum spotting range
+-- based on the synergistic relationship between movement and ambient light
+-- resulting in highly realistic and fluid stealth detection.
+
+-- ------------------------------------------------------------------
+-- I. INITIALIZATION & DEPENDENCIES
+-- ------------------------------------------------------------------
+
+local MUZZLE_FLASH_DURATION = 0.2
+local MUZZLE_FLASH_BONUS = 0.6
+local last_combined_luminance = {}
+local value_history = {}
+local history_size = 60
+local marked_times = {}
+local tip_flag = false
+local observer_name = ""
+local safe_luminance = 0
+local npc_tracking_data = {}
+local light_on_actor = 1
+
+-- FIX (LAMA EDIT integration): namespace table. modules.script's central
+-- dispatcher calls visual_memory_manager.on_game_start() dot-qualified (see
+-- LoadScheme("visual_memory_manager", ...) in modules.script) - without this
+-- table, that call silently no-ops and NONE of this file's RegisterScriptCallback
+-- registrations below ever fire. Also required for zzzz_light_gem_patch.script,
+-- which reads visual_memory_manager.stealth_light_ind.
+visual_memory_manager = visual_memory_manager or {}
+
+-- FIX (LAMA EDIT integration): restored from LAMA EDIT's visual_memory_manager.script.
+-- Tracks, per observer, the id of whoever last hit them (npc_on_before_hit below),
+-- so a squad that took fire becomes easier to spot. In LAMA EDIT this table stored
+-- a boolean (marked[id] = true) and was then compared with "== who:id()" in
+-- get_memory_val - a boolean is never == a number, so that whole branch was dead
+-- code there. Storing the attacker's id (see npc_on_before_hit) is what makes the
+-- comparison in get_visible_value below actually work.
+local marked = {}
+
+-- FIX (LAMA EDIT integration): restored from LAMA EDIT. Gates the native
+-- weapon_fired->script bridge and the npc_on_before_hit/npc_on_net_spawn
+-- registrations below, matching LAMA EDIT's version check.
+local correct_game_ver = GAME_VERSION and (string.find(GAME_VERSION, "1.5.2") or string.find(GAME_VERSION, "1.5.3"))
+
+-- Internal Global Variables (Updated by logic/MCM)
+local raw_env_lum = 0
+local npc_attacked = {}
+local surface_noise_factor = 0
+local outfit_camo_coefficient = 0
+local muzzle_flashes = {}
+local cover_percentage = 0
+local jacketmult = 1
+local visibility_distance_threshold = 0
+local vdt_sum = 0
+local previous_observer = nil
+-- Caching helpers (use `game_timer_seconds` to throttle expensive recalculations)
+local vdt_cache_interval = 1          -- seconds between VDT recomputes
+local vdt_cached = nil
+local weather_cache_interval = 10      -- seconds between weather factor recomputes
+local weather_cached = nil
+-- Per-target luminosity cache (reduce repeated light computations)
+local lum_cache = {}
+local lum_cache_ttl = 1 -- seconds
+-- FIX (LAMA EDIT integration): was a bare global "stealth_light_ind". Moved
+-- under the visual_memory_manager table because zzzz_light_gem_patch.script
+-- reads visual_memory_manager.stealth_light_ind[1]/[2] dot-qualified - the
+-- bare global was never visible there, and NewBarUpd() crashed on every HUD
+-- refresh with "attempt to index a nil value (global 'visual_memory_manager')".
+visual_memory_manager.stealth_light_ind = { 0, false }
+
+-- ------------------------------------------------------------------
+-- II. CONFIGURATION DEFAULTS (Overwritten by fetch_mcm_values)
+-- ------------------------------------------------------------------
+
+-- 1. General System Controls
+local enable_debug = false
+local detection_range = 80
+local debug_type = 1
+
+-- 2. Weather Adjustments
+local weather_clear = 95
+local weather_partly_cloudy = 0.90
+local weather_cloudy = 0.85
+local weather_cloudy_dark = 0.8
+local weather_rain = 0.75
+local weather_storm = 0.7
+local weather_fog = 0.7
+local weather_default = 0.9
+
+-- 3. Luminance Normalization Controls
+local global_luminance_multiplier = 1
+local dark_area_boost_strength = 0
+local bright_area_nerf_strength = 0
+
+-- 4. Movement and Body Factors
+local crouch_visibility_multiplier = 0.6
+local slow_crouch_visibility_multiplier = 0.4
+local sprinting_visibility_multiplier = 1.25
+local surface_noise_intensity = 0.2
+
+-- 5. Lighting and Environmental Factors
+local campfire_influence_distance = 7
+local use_ray_casting = true
+local indoor_check_frequency = 10
+
+-- 6. Animation & Perception Factors
+local fov_central_vision_angle = 30
+local fov_peripheral_vision_angle = 180
+
+-- 7. Camo & NVG Factors
+local nvg_bonus_strength = 0.5
+local agressive_response = true
+
+-- 8. Weather-profile system
+-- Each weather profile defines desired luminance at key times of day.
+local weather_profiles = {
+   default = {
+      [0]  = 0.1,
+      [2]  = 0.1,
+      [4]  = 0.1,
+      [6]  = 0.6,
+      [8]  = 0.7,
+      [10] = 0.8,
+      [12] = 0.9,
+      [14] = 0.9,
+      [16] = 0.8,
+      [18] = 0.7,
+      [20] = 0.5,
+      [22] = 0.1,
+   }
+}
+
+-- Jacket Kind (visibility multiplier based on outfit 'kind')
+local jacket_t = {
+   ["o_medium"] = 1.06,
+   ["o_sci"] = 1.03,
+   ["o_light"] = 1,
+   ["o_heavy"] = 1.09,
+}
+
+-- ------------------------------------------------------------------
+-- III. UTILITY FUNCTIONS
+-- ------------------------------------------------------------------
+
+
+-- surge test
+local function is_surge_active()
+    return surge_manager.is_loaded() and surge_manager.is_started()
+           or psi_storm_manager.is_loaded() and psi_storm_manager.is_started()
+end
+
+-- luminance contrast compressor
+local function normalize_luminance(value, dark_adjust, bright_adjust)
+   local v = clamp(value, 0, 1)
+
+   if v < 0.5 then
+      return v + (0.5 - v) * dark_adjust
+   else
+      return v + (v - 0.5) * bright_adjust
+   end
+end
+
+-- ranged value compressor
+local function normalize_value(value, min, max, boost_strength, nerf_strength)
+  local range = max - min
+  local mid = min + range / 2
+  local normalized_value = (value - min) / range * 2
+  local v = clamp(normalized_value, 0, 2)
+
+  if v < 1 then
+    -- Boost darker values more
+    return min + (v + (1 - v) * boost_strength) * (range / 2)
+  else
+    -- Nerf brighter values
+    return min + (v - (v - 1) * nerf_strength) * (range / 2)
+  end
+end
+
+local function lerp(a, b, t)
+    return a + (b - a) * t
+end
+
+local function safe_rgb_to_luminance(v)
+   if not v then return 0 end
+   local x = clamp(v.x, 0, 1)
+   local y = clamp(v.y, 0, 1)
+   local z = clamp(v.z, 0, 1)
+   return 0.21 * x + 0.72 * y + 0.07 * z
+end
+
+-- smoothstep-like cubic interpolation
+local function cubic_hermite(a, b, t)
+   local t2 = t * t
+   local t3 = t2 * t
+   return a * (2*t3 - 3*t2 + 1) + b * (-2*t3 + 3*t2)
+end
+
+-- nonlinear interpolation wrapper
+local function nonlinear_interp(a, b, t)
+   -- t is 0..1
+   return cubic_hermite(a, b, t)
+end
+
+-- interpolate profile values across hours
+local function interpolate_profile(profile, game_hour)
+    game_hour = game_hour % 24
+
+    local keys = {}
+    for k,_ in pairs(profile) do table.insert(keys, k) end
+    table.sort(keys)
+
+    for i = 1, #keys do
+        local start_k = keys[i]
+        local end_k = keys[(i % #keys) + 1]  -- next key, wrap around
+        local v1 = profile[start_k]
+        local v2 = profile[end_k]
+
+        -- CASE 1: normal segment (e.g., 6 → 8)
+        if start_k < end_k then
+            if game_hour >= start_k and game_hour < end_k then
+                local t = (game_hour - start_k) / (end_k - start_k)
+                return nonlinear_interp(v1, v2, t)
+            end
+
+        -- CASE 2: wrap around (e.g., 22 → 0)
+        else
+            if game_hour >= start_k or game_hour < end_k then
+                local span = (end_k - start_k) % 24
+                local rel  = (game_hour - start_k) % 24
+                local t = rel / span
+                return nonlinear_interp(v1, v2, t)
+            end
+        end
+    end
+
+    return profile[keys[1]]  -- fallback
+end
+
+-- get current weather category from weather manager name
+local function get_weather_category()
+   local current_weather = level.get_weather()
+
+   -- most specific → least specific order
+   if string.find(current_weather, "cloud") and string.find(current_weather, "dark") then
+      return "cloudy_dark"
+   end
+   if string.find(current_weather, "clear") then
+      return "clear"
+   end
+   if string.find(current_weather, "partly") then
+      return "partly_cloudy"
+   end
+   if string.find(current_weather, "rain") then
+      return "rain"
+   end
+   if string.find(current_weather, "storm") then
+      return "storm"
+   end
+   if string.find(current_weather, "fog") or string.find(current_weather, "mist") then
+      return "fog"
+   end
+   if string.find(current_weather, "cloud") or string.find(current_weather, "overcast") then
+      return "cloudy"
+   end
+   if string.find(current_weather, "indoor") or string.find(current_weather, "underground") then
+      return "indoor"
+   end
+
+   return "default"
+end
+
+-- Helper for debug message averaging
+local function get_averaged_value(new_value)
+   table.insert(value_history, new_value)
+   if #value_history > history_size then
+      table.remove(value_history, 1)
+   end
+
+   local sum = 0
+   for i, val in ipairs(value_history) do
+      sum = sum + val
+   end
+   local average_value = sum / #value_history
+
+   return average_value
+end
+
+-- FIX: was a bare global, colliding with the identically-named pr in
+-- stealth_nvg.script - only whichever file loaded last would ever actually
+-- run, silently making stealth_nvg's own nvg_dbg toggle dead. Made local.
+local function pr(...)
+    if not enable_debug then return end
+    printf(...)
+end
+
+-- ------------------------------------------------------------------
+-- IV. FACTOR COMPUTATION HELPERS
+-- ------------------------------------------------------------------
+
+-- compute raw environment luminance from weather system
+local function compute_raw_environment_luminance()
+   local hemi = safe_rgb_to_luminance(weather.get_value_vector("hemisphere_color"))
+   local amb  = safe_rgb_to_luminance(weather.get_value_vector("ambient_color"))
+   local sun  = safe_rgb_to_luminance(weather.get_value_vector("sun_color"))
+   local fog  = safe_rgb_to_luminance(weather.get_value_vector("fog_color"))
+
+   hemi = clamp(hemi, 0.0, 10)
+   amb  = clamp(amb, 0.0, 10)
+   sun  = clamp(sun, 0.0, 10)
+   fog  = clamp(fog, 0.0, 10)
+
+   local fog_density_local = weather.get_value_numric and weather.get_value_numric("fog_density") or 0
+   fog_density_local = clamp(fog_density_local, 0, 1)
+   local fog_distance_raw_local = weather.get_value_numric and weather.get_value_numric("fog_distance") or 0
+   local fog_distance_local = clamp(fog_distance_raw_local / 350, 0, 1)
+
+   local fog_proximity = 1 - fog_distance_local
+   local fog_influence = fog_density_local * fog_proximity
+   local sun_presence_threshold = 0.02
+   local sun_presence = (sun > sun_presence_threshold) and 1 or 0
+   local fog_weight = fog_influence
+   local sun_weight = sun_presence * (1 - fog_weight)
+   local combined_light_weight = fog_weight + sun_weight
+   if combined_light_weight < 1e-6 then
+      combined_light_weight = 1
+      fog_weight = 0
+      sun_weight = 1
+   end
+
+   local dominant_light = (fog * fog_weight + sun * sun_weight) / combined_light_weight
+   local env_raw = (math.max(hemi, amb, dominant_light) * 2 + hemi + amb + dominant_light) / 5
+   return clamp(env_raw, 0, 1)
+end
+
+-- compute final luminosity combining profile + raw preset as a modifier
+local function compute_profiled_vdt(observer_npc)
+   if vdt_cached then
+      if not game_timer_seconds("check", "vdt_cache") then
+         return vdt_cached
+      end
+   end
+
+   raw_env_lum = compute_raw_environment_luminance()
+
+   -- pick weather profile
+   local weather_cat = get_weather_category()
+   local profile = weather_profiles.default
+
+   -- get current game hour as floating hours
+   local hours = level.get_time_hours() or 12
+   local mins = level.get_time_minutes() or 0
+   local game_hour = hours + mins / 60
+
+   -- interpolate profile luminance for this time
+   local profile_vdt = detection_range * interpolate_profile(profile, game_hour)
+   if weather_cat == "indoor" then
+      profile_vdt = detection_range * 0.7
+   end
+
+   -- use raw_env_lum to nudge the profile within configured bounds
+   local adjusted_vdt = 0
+
+   if is_surge_active() == true then
+      weather_cat = "storm"
+      adjusted_vdt = (profile_vdt * 0.6) + ((profile_vdt * 0.4) * raw_env_lum)
+   else
+      adjusted_vdt = (profile_vdt * 0.90) + ((profile_vdt * 0.10) * raw_env_lum)
+   end
+
+   local weather_multiplier
+   if weather_cat == "clear" then
+      weather_multiplier = weather_clear
+   elseif weather_cat == "partly_cloudy" then
+      weather_multiplier = weather_partly_cloudy
+   elseif weather_cat == "cloudy" then
+      weather_multiplier = weather_cloudy
+   elseif weather_cat == "cloudy_dark" then
+      weather_multiplier = weather_cloudy_dark
+   elseif weather_cat == "rain" then
+      weather_multiplier = weather_rain
+   elseif weather_cat == "storm" then
+      weather_multiplier = weather_storm
+   elseif weather_cat == "fog" then
+      weather_multiplier = weather_fog
+   elseif weather_cat == "indoor" then
+      if IsMonster(observer_npc) then
+         weather_multiplier = 1
+      else
+         adjusted_vdt = profile_vdt * raw_env_lum
+         weather_multiplier = 1
+      end
+   else
+      weather_multiplier = weather_default
+   end
+
+   -- apply global multiplier and normalize contrast
+   local normalized_vdt = adjusted_vdt * weather_multiplier
+
+   vdt_cached = clamp(normalized_vdt, 0.1, detection_range)
+   game_timer_seconds("mark", "vdt_cache", vdt_cache_interval)
+   return vdt_cached
+end
+
+-- combines world and entity luminance
+local function compute_luminosity_factors(safe_vdt_factor, target_entity)
+   -- Entity luminance
+   local entity_luminance_raw = 0
+   if target_entity and target_entity.get_luminocity then
+     entity_luminance_raw = target_entity:get_luminocity() or 0
+   end
+   local entity_luminance_corrected = clamp(entity_luminance_raw, 0, 1)
+
+   local is_actor = target_entity and target_entity:id() == db.actor:id()
+
+   local environment_luminance = visibility_distance_threshold/detection_range * 1.1
+
+   if is_actor and use_ray_casting == true then
+      if game_timer_seconds("check", "update_cover_percentage", indoor_check_frequency) then
+         cover_percentage = revision_indoor_check.cover_percentage()
+         cover_percentage = clamp(cover_percentage, 0, 1)
+         game_timer_seconds("mark", "update_cover_percentage", indoor_check_frequency)
+         pr("! cover_percentage: %s", cover_percentage)
+      end
+
+      if entity_luminance_corrected < 0.5 then
+         if cover_percentage > 0.85 then
+            environment_luminance = environment_luminance * 0.40
+         else
+            environment_luminance = environment_luminance * 0.90
+         end
+      end
+
+      local normalized = normalize_luminance(environment_luminance * global_luminance_multiplier, dark_area_boost_strength, bright_area_nerf_strength)
+
+      local smoothing_alpha = 0.18
+      local id = target_entity:id()
+      local prev = last_combined_luminance[id] or normalized
+      local smoothed = prev * (1 - smoothing_alpha) + normalized * smoothing_alpha
+      last_combined_luminance[id] = smoothed
+
+      return smoothed
+   else
+      local indoor_factor = clamp((environment_luminance - entity_luminance_corrected) * 1.5, 0, 1)
+      local entity_luminance = entity_luminance_corrected * (1 - indoor_factor) + (environment_luminance * 0.85) * indoor_factor
+
+      local OCCLUSION_THRESHOLD = 0.4
+      local OCCLUSION_BOOST_FACTOR = 3.0
+      local MAX_OCCLUSION_BOOST = 5.0
+
+      local occlusion_difference = safe_vdt_factor - entity_luminance
+      local occlusion_boost_base = clamp(occlusion_difference - OCCLUSION_THRESHOLD, 0, 1)
+      local dynamic_multiplier = clamp(1.0 + occlusion_boost_base * OCCLUSION_BOOST_FACTOR, 1.0, MAX_OCCLUSION_BOOST)
+
+      local blended = (safe_vdt_factor * 0.20) + (environment_luminance * (0.60 / dynamic_multiplier)) + (entity_luminance * 0.20 * dynamic_multiplier)
+
+      local normalized = normalize_luminance(blended * global_luminance_multiplier, dark_area_boost_strength, bright_area_nerf_strength)
+
+      local smoothing_alpha = 0.18
+      local id = target_entity and target_entity:id() or -1
+      local prev = last_combined_luminance[id] or normalized
+      local smoothed = prev * (1 - smoothing_alpha) + normalized * smoothing_alpha
+      last_combined_luminance[id] = smoothed
+
+      return smoothed
+   end
+end
+
+-- Movement factor
+local function compute_movement_factor(velocity_value, target_entity, is_crouching, is_slow, is_jumping, is_climbing, is_sprinting)
+   local movement_factor_raw = 0
+   if velocity_value ~= 0 then
+      movement_factor_raw = 1
+      if is_crouching then
+      movement_factor_raw = movement_factor_raw * crouch_visibility_multiplier
+         if is_slow then
+            movement_factor_raw = movement_factor_raw * slow_crouch_visibility_multiplier
+         end
+      elseif is_slow then
+         movement_factor_raw = movement_factor_raw * crouch_visibility_multiplier
+      elseif is_sprinting then
+         movement_factor_raw = movement_factor_raw * sprinting_visibility_multiplier
+      elseif is_jumping then
+         movement_factor_raw = movement_factor_raw * 1.3
+      elseif is_climbing then
+         movement_factor_raw = movement_factor_raw * 1.2
+      end
+   end
+   return movement_factor_raw
+
+end
+
+-- Body & state factor
+local function compute_body_factor(observer_npc, target_entity, is_crouching, is_slow, normalized_distance)
+   local body_visibility_factor = jacketmult or 1
+
+   if target_entity and target_entity:id() == db.actor:id() then
+      if is_crouching then
+         body_visibility_factor = body_visibility_factor * crouch_visibility_multiplier
+         if is_slow then
+            body_visibility_factor = body_visibility_factor * slow_crouch_visibility_multiplier
+         end
+      end
+
+      body_visibility_factor = body_visibility_factor - surface_noise_factor
+
+   else
+      local observer_crouch_modifier = 1
+      if IsStalker(observer_npc) and (observer_npc:body_state() == move.crouch) then
+         observer_crouch_modifier = 0.7
+         body_visibility_factor = body_visibility_factor * observer_crouch_modifier
+      end
+   end
+
+   local body_distance_factor = 1 - (normalized_distance * 0.2)
+   local adjusted_body_factor = body_visibility_factor * body_distance_factor
+   return adjusted_body_factor
+end
+
+-- Animation state factor
+local function compute_animation_factor(observer_npc)
+   local animation_factor = 1
+   local current_state = state_mgr.get_state(observer_npc)
+
+   if current_state ~= nil then
+      if string.find(current_state, "sleep") then
+         animation_factor = 0.2
+      elseif string.find(current_state, "drunk_") then
+         animation_factor = 0.4
+      elseif string.find(current_state, "play_") then
+         animation_factor = 0.6
+      elseif string.find(current_state, "roast_") then
+        animation_factor = 0.7
+      elseif string.find(current_state, "eat_") then
+         animation_factor = 0.8
+      elseif string.find(current_state, "sit_") or string.find(current_state, "_sit") then
+         animation_factor = 0.9
+      end
+   end
+   return animation_factor
+end
+
+-- Weather factor
+local function compute_weather_factor(detection_range)
+   if weather_cached then
+      if not game_timer_seconds("check", "weather_cache") then
+         return weather_cached
+      end
+   end
+
+   local rain_density = weather.get_value_numric("rain_density")
+   local fog_density = clamp(weather.get_value_numric("fog_density"), 0.001, 1)
+   local fog_distance = clamp(weather.get_value_numric("fog_distance") / detection_range * 2, 0, 1)
+   local weather_factor = (1 - rain_density / 4) * clamp(fog_distance / fog_density, 0, 1)
+
+   weather_cached = clamp(weather_factor, 0.01, 1)
+   game_timer_seconds("mark", "weather_cache", weather_cache_interval)
+   return weather_cached
+end
+
+-- FIX (crash log): confirmed via stack trace - working_smoke_grenades.script
+-- calls get_visible_value(...) for nearby NPC pairs, which reaches this
+-- function through compute_extra_light_factor. This did a live
+-- level.iterate_nearest(...) on EVERY single get_visible_value call (i.e.
+-- every observer/target pair, many times per second), with no guard on the
+-- iterated object. Two problems: (1) if the caller is itself iterating nearby
+-- objects (very likely for a smoke-grenade "who's affected" scan), this
+-- becomes a nested/re-entrant level.iterate_nearest call, which is a known
+-- X-Ray/Monolith engine crash - the native nearest-query cursor isn't
+-- reentrant. (2) no nil guard on obj before obj:section(). Fixed by adding a
+-- per-target TTL cache (same pattern as get_cached_luminosity/lum_cache below)
+-- so the expensive spatial query only runs at most once every
+-- glowstick_check_interval seconds per target instead of on every call, and
+-- by guarding obj before touching it. This sharply reduces how often the
+-- query re-enters an already-running iteration, though it isn't a structural
+-- guarantee - if working_smoke_grenades.script truly nests it every call,
+-- the interval below controls how rarely that window can still be hit.
+local glowstick_cache = {}
+local glowstick_check_interval = 2
+
+local function check_for_nearby_glowstick(target_entity)
+    if not target_entity then return false, nil end
+
+    local id = target_entity:id()
+    local entry = glowstick_cache[id]
+    if entry and entry.time then
+        local elapsed = game.get_game_time():diffSec(entry.time)
+        if elapsed < glowstick_check_interval then
+            return entry.found, entry.dist
+        end
+    end
+
+    local target_pos = target_entity:position()
+    local min_dist = campfire_influence_distance
+    local found_dist = nil
+    local found = false
+
+    level.iterate_nearest(target_pos, min_dist, function(obj)
+        if not obj then return end
+        local section = obj:section()
+
+        if section and string.find(section, "glowstick") then
+            local dist = obj:position():distance_to(target_pos)
+
+            if dist < (found_dist or min_dist) then
+                found = true
+                found_dist = dist
+            end
+        end
+    end)
+
+    glowstick_cache[id] = { found = found, dist = found_dist, time = game.get_game_time() }
+    return found, found_dist
+end
+
+local extra_light_range = 0
+
+-- Extra light factor (torches/headlamps/lighted campfires)
+local function compute_extra_light_factor(observer_npc, target_entity, in_fov, detection_range, is_night_time, adjusted_perception)
+   if is_night_time then
+      extra_light_range = detection_range - 10
+   else
+      extra_light_range = 25
+   end
+   light_on_actor = 0
+   local extra_light_factor = 0
+   local target_is_actor = target_entity:id() == db.actor:id()
+
+   local actor_headlamp = db.actor:item_in_slot(10)
+   local actor_flashlight = db.actor:item_in_slot(9)
+
+   if target_is_actor then
+      local observer_torch = IsStalker(observer_npc) and observer_npc:object("device_torch")
+      if observer_torch and observer_torch:attachable_item_enabled() then
+         local target_in_fov = in_fov
+         if target_in_fov then
+            extra_light_factor = math.max(extra_light_factor, 25) * adjusted_perception
+         end
+      end
+      if actor_headlamp and actor_headlamp:torch_enabled() then
+         extra_light_factor = math.max(extra_light_factor, extra_light_range)
+      elseif actor_flashlight and ((actor_flashlight:section() == "device_flashlight") or string.find(actor_flashlight:section(), "device_glowstick")) and db.actor:active_detector() then
+         extra_light_factor = math.max(extra_light_factor, extra_light_range + 10)
+      end
+   else
+      local observer_torch = IsStalker(observer_npc) and observer_npc:object("device_torch")
+      if observer_torch and observer_torch:attachable_item_enabled() then
+         local target_in_fov = in_fov
+         if target_in_fov then
+            extra_light_factor = math.max(extra_light_factor, 25) * adjusted_perception
+         end
+      end
+      local npc_torch = IsStalker(target_entity) and target_entity:object("device_torch")
+      if npc_torch and npc_torch:attachable_item_enabled() then
+         extra_light_factor = math.max(extra_light_factor, extra_light_range)
+      end
+   end
+
+   local found_glowstick, glowstick_dist = check_for_nearby_glowstick(target_entity)
+   local glowstick_boost = 0
+
+   if found_glowstick and glowstick_dist then
+      if glowstick_dist <= campfire_influence_distance then
+         local distance_factor = 1 - (glowstick_dist / campfire_influence_distance)
+         glowstick_boost = (extra_light_range + 10) * distance_factor
+      end
+   end
+   
+   local campfire_boost = 0
+   for id, binder in pairs(bind_campfire.campfires_all) do
+      if binder and binder.campfire and binder.campfire:is_on() then
+         local dist = target_entity:position():distance_to(binder.object:position())
+         if dist <= campfire_influence_distance then
+            local distance_factor = 1 - (dist / campfire_influence_distance)
+            campfire_boost = (extra_light_range + 10) * distance_factor
+            break
+         end
+      end
+   end
+
+   extra_light_factor = math.max(extra_light_factor, campfire_boost, glowstick_boost)
+   light_on_actor = extra_light_factor
+
+   return extra_light_factor
+end
+
+-- NPC scoped active weapon bonus
+local function scoped_active_weapon_bonus(npc)
+   local wpn = npc:active_item() and npc:best_weapon()
+
+   if (wpn) and (IsWeapon(wpn)) and not IsMelee(wpn) and (wpn:weapon_is_scope()) then
+      return true
+   else
+      return false
+   end
+end
+
+-- Target entity has a silenced weapon
+local function silenced_weapon()
+   local wpn = db.actor:active_item()
+   if (wpn) and (IsWeapon(wpn)) and not IsMelee(wpn) and (wpn:weapon_is_silencer()) then
+      return true
+   else
+      return false
+   end
+end
+
+local NPC_RANK_DATA = {
+    { max_pts = 1499,  val = 26 }, -- novice
+    { max_pts = 2499,  val = 28 }, -- trainee
+    { max_pts = 5499,  val = 30 }, -- experienced
+    { max_pts = 9999,  val = 32 }, -- professional
+    { max_pts = 14999, val = 34 }, -- veteran
+    { max_pts = 19999, val = 36 }, -- expert
+    { max_pts = 29999, val = 38 }, -- master
+}
+local DEFAULT_VAL = 40
+
+-- FIX: was a bare global; not called dot-qualified anywhere in the mod.
+-- Made local (unnecessary global-namespace pollution otherwise).
+local function get_npc_rank_multiplier(npc)
+   if not (npc and npc:alive()) then
+      return 0
+   end
+
+   local is_stalker = IsStalker(npc)
+   local has_comm_method = is_stalker and npc.character_community
+   local comm = has_comm_method and npc:character_community() or ""
+   
+   if not is_stalker or IsMonster(npc) or comm == "zombied" then
+      return DEFAULT_VAL
+   end
+
+   local rank_pts = npc:rank() or 0
+   
+   for i = 1, #NPC_RANK_DATA do
+      if rank_pts <= NPC_RANK_DATA[i].max_pts then
+         return NPC_RANK_DATA[i].val
+      end
+   end
+
+   return DEFAULT_VAL
+end
+
+-- Camo factor
+local function get_camo_multiplier(target_entity)
+   local camo_koeff = 0
+
+   if (target_entity:id() ~= db.actor:id()) then
+      return camo_koeff
+   end
+
+   camo_koeff = outfit_camo_coefficient * 2
+
+   return camo_koeff
+end
+
+-- NVG factor
+local function get_nvg_factor(observer_npc)
+   local is_night_time = false
+   if observer_npc then
+      local nvg_bonus = nvg_bonus_strength
+
+      local game_time = level.get_time_hours() + level.get_time_minutes() / 60
+      is_night_time = (game_time > 21 or game_time < 5)
+      if IsMonster(observer_npc) then
+         if nvg_bonus > 0 and is_night_time then
+            return 1 + nvg_bonus, is_night_time
+         else
+            return 1, is_night_time
+         end
+      end
+
+      if not (nvg_bonus > 0 and is_night_time and stealth_nvg.stealth_nvg_ps[observer_npc:id()]) then
+         return 1, is_night_time
+      end
+      return 1 + nvg_bonus, is_night_time
+   else
+      return 1, is_night_time
+   end
+end
+
+-- ------------------------------------------------------------------
+-- V. MAIN VISIBILITY COMPUTATION
+-- ------------------------------------------------------------------
+
+function get_visible_value(observer_npc, target_entity, frame_time_delta, frame_time_quant, luminance_value, visibility_velocity_factor, velocity_value, visual_focus, total_distance, always_visible_distance)
+
+   visibility_distance_threshold = compute_profiled_vdt(observer_npc)
+
+   local safe_vdt_factor = visibility_distance_threshold/detection_range
+
+   safe_vdt_factor = safe_vdt_factor <= 0 and 0.0001 or safe_vdt_factor
+
+   safe_luminance = luminance_value <= 0 and 0.0001 or luminance_value
+
+   local clamped_velocity = normalize_value(velocity_value, 0, 3, 0, 0)
+
+   local is_crouching, is_slow, is_jumping, is_climbing, is_sprinting = false, false, false, false, false
+   local target_is_actor = target_entity:id() == db.actor:id()
+
+   if target_is_actor then
+      is_sprinting = IsMoveState('mcSprint')
+      is_climbing = IsMoveState('mcClimb')
+      is_slow = IsMoveState('mcAccel')
+      is_crouching = IsMoveState('mcCrouch')
+      is_jumping = IsMoveState('mcJump')
+   elseif IsStalker(target_entity) then
+      is_crouching = target_entity:body_state() == move.crouch
+   end
+
+   local object_distance = total_distance
+   local safe_perception_value = visual_focus <= 0 and 0.0001 or visual_focus
+
+   local nvg_factor, is_night_time = get_nvg_factor(observer_npc)
+
+   if (not observer_npc) or (not target_entity) then
+      return (frame_time_delta / frame_time_quant) * safe_luminance * (1 + clamped_velocity) * (safe_perception_value - object_distance) / safe_perception_value
+   end
+
+   local muzzle_flash_luminance_factor = muzzle_flashes[target_entity:id()] or 0
+   local normalized_distance = object_distance / visibility_distance_threshold
+
+   local adjusted_lum_visibility = get_cached_luminosity(safe_vdt_factor, target_entity)
+   local adjusted_body = compute_body_factor(observer_npc, target_entity, is_crouching, is_slow, normalized_distance)
+   local animation_factor = compute_animation_factor(observer_npc)
+   local in_fov, adjusted_perception = npc_is_in_fov(observer_npc, target_entity, detection_range, fov_central_vision_angle, fov_peripheral_vision_angle)
+   local adjusted_focus = clamp(visual_focus / 100, 1, 1.2)
+   local extra_light_factor = compute_extra_light_factor(observer_npc, target_entity, in_fov, detection_range, is_night_time, adjusted_perception)
+   adjusted_lum_visibility = adjusted_lum_visibility + muzzle_flash_luminance_factor
+   adjusted_lum_visibility = adjusted_lum_visibility * nvg_factor
+   local weather_factor = compute_weather_factor(detection_range)
+   local npc_rank_multiplier = get_npc_rank_multiplier(observer_npc)
+   local adjusted_movement = compute_movement_factor(velocity_value, target_entity, is_crouching, is_slow, is_jumping, is_climbing, is_sprinting)
+   local vdt_movement_adjust = 10 * adjusted_movement * adjusted_lum_visibility
+   local clamped_lum_visibility = 0.3 + (adjusted_lum_visibility * 0.7)
+   local adjusted_VDT = visibility_distance_threshold * clamped_lum_visibility * adjusted_body * animation_factor * adjusted_perception * adjusted_focus *weather_factor + vdt_movement_adjust
+   adjusted_VDT = math.max(adjusted_VDT, extra_light_factor)
+
+   -- LOGIC: Camo Multiplier
+   local actor_camo_keoff = get_camo_multiplier(target_entity)
+   local camo_strength = math.log(1 + actor_camo_keoff) / math.log(1 + 20)
+   local movement_penalty = clamp(clamped_velocity * 1.4, 0, 1)
+   local camo_light_factor = 1 - adjusted_lum_visibility          -- strongest in low light
+   local camo_distance_factor = normalized_distance          -- strongest farther away
+   local camo_effect = camo_strength * camo_light_factor * camo_distance_factor * (1 - movement_penalty)
+   if adjusted_movement == 0 then
+      camo_effect = camo_effect * 1.25 -- bonus to camo when not moving
+   end
+   local camo_multiplier = 1 - camo_effect
+
+   -- Enemy combat state & scoped weapon Bonus
+   
+   if IsStalker(observer_npc) then
+      local observer_enemy = observer_npc:best_enemy()
+      if observer_enemy and observer_enemy:alive() and observer_enemy:id() == target_entity:id() then
+         local scoped_weapon_buff = scoped_active_weapon_bonus(observer_npc)
+
+         if scoped_weapon_buff == true then
+            if is_night_time then
+               if nvg_factor > 1 then
+                  adjusted_VDT = detection_range
+               end
+            else
+               adjusted_VDT = detection_range
+            end
+         end
+      end
+   end
+
+   -- FIX (LAMA EDIT integration): restored "marked" target bonus from LAMA
+   -- EDIT's additive target_marked system, adapted to this file's VDT model -
+   -- scales adjusted_VDT toward detection_range by day/night and recency
+   -- instead of adding a raw number, matching how the scoped-weapon bonus
+   -- above already works. marked[observer_npc:id()] holds the id of whoever
+   -- last hit this observer (see npc_on_before_hit); this fires only when the
+   -- target currently being evaluated is that same attacker. The recently_hit
+   -- window and day-time multiplier are a reasonable starting point carried
+   -- over from the shape of the LAMA EDIT original, not precisely-tuned
+   -- numbers - adjust with playtesting.
+   if marked[observer_npc:id()] == target_entity:id() then
+      local st = db.storage[observer_npc:id()]
+      local last_hit = st and st.last_hit_time
+      local recently_hit = last_hit and (time_global() - last_hit < 8000)
+
+      if is_night_time then
+         if observer_npc:see(target_entity) or recently_hit or nvg_factor > 1 then
+            adjusted_VDT = detection_range
+         end
+      else
+         adjusted_VDT = math.max(adjusted_VDT, detection_range * (recently_hit and 1 or 0.6))
+      end
+   end
+
+   -- Apply Camo and Observer's Base Threshold
+   adjusted_VDT = (adjusted_VDT * camo_multiplier)
+   adjusted_VDT = clamp(adjusted_VDT, always_visible_distance, detection_range)
+
+   -- Final Visibility Score Calculation
+   local visibility_score = 0
+   local visibility_threshold = observer_npc:visibility_threshold() or 150
+
+
+   if object_distance < adjusted_VDT then
+      visibility_score = npc_rank_multiplier
+   else
+      visibility_score = 0
+   end
+
+   --LOG DATA TO TRACKING TABLE
+   local is_enemy_to_ac = false
+   if target_is_actor and observer_npc:alive() and IsStalker(observer_npc) then
+      is_enemy_to_ac = game_relations.is_factions_enemies(character_community(db.actor), observer_npc:character_community())
+   end
+   if observer_npc and target_entity and target_entity:id() == db.actor:id() and is_enemy_to_ac then
+      local distance_ratio = 0
+      if object_distance <= adjusted_VDT then
+          distance_ratio = 1
+      elseif object_distance <= detection_range then
+          distance_ratio = (detection_range - object_distance) / (detection_range - adjusted_VDT)
+          distance_ratio = clamp(distance_ratio, 0, 1)
+      end
+            
+      local red_threshold = adjusted_VDT
+      
+      local danger_state = object_distance < red_threshold
+
+      if red_threshold < 0 then 
+         danger_state = object_distance < 0.1 
+      end
+      
+      npc_tracking_data[observer_npc:id()] = {
+         ratio = clamp(distance_ratio, 0, 1),
+         danger = danger_state,
+         time = time_global() -- Record time for cleanup
+      }
+   end
+
+   -- Debugging
+   if enable_debug == true then
+      if target_entity:id() == db.actor:id() and debug_type == 1  then
+         debug_visibility_log(object_distance, adjusted_VDT, adjusted_lum_visibility, adjusted_body, animation_factor, adjusted_perception, adjusted_focus, extra_light_factor, weather_factor, adjusted_movement, observer_npc, target_entity, visibility_score, visibility_threshold)
+      elseif debug_type == 2 then
+         debug_luminance_values(adjusted_lum_visibility)
+      end
+   end
+
+   -- apply agressive response from npcs shot beyond detection range
+   if agressive_response == true and target_is_actor and object_distance > detection_range then
+      local found = false
+      for i, id in ipairs(npc_attacked) do
+         if id == observer_npc:id() then
+               found = true
+               break
+         end
+      end
+
+      local weapon_silenced = silenced_weapon()
+
+      if found and not weapon_silenced then
+         visibility_score = visibility_threshold
+         npc_attacked = {}
+      end
+   end
+
+   return visibility_score
+end
+
+-- ------------------------------------------------------------------
+-- VI. CALLBACKS & PUBLIC FUNCTIONS
+-- ------------------------------------------------------------------
+
+-- FIX: was a bare global; not called dot-qualified anywhere. Made local.
+local function update_stealth_indicator()
+   local max_ratio = 0
+   local max_danger = false
+   local current_time = time_global()
+   local expired_ids = {}
+
+   for npc_id, data in pairs(npc_tracking_data) do
+      if current_time - data.time > 5000 then 
+         table.insert(expired_ids, npc_id)
+      else
+         if data.ratio > max_ratio then
+            max_ratio = data.ratio
+            max_danger = data.danger
+         end
+      end
+   end
+
+   for _, npc_id in ipairs(expired_ids) do
+      npc_tracking_data[npc_id] = nil
+   end
+
+   -- FIX (LAMA EDIT integration): was the bare global stealth_light_ind -
+   -- see visual_memory_manager.stealth_light_ind declaration near the top.
+   visual_memory_manager.stealth_light_ind[1] = max_ratio
+   visual_memory_manager.stealth_light_ind[2] = max_danger
+end
+
+-- Print visibility debug info
+function debug_visibility_log(object_distance, adjusted_VDT, adjusted_lum_visibility, adjusted_body, animation_factor, adjusted_perception, adjusted_focus, extra_light_factor, weather_factor, adjusted_movement, observer_npc, target_entity, visibility_score, visibility_threshold)
+
+   local target_is_actor = target_entity:id() == db.actor:id()
+   local observer_id = observer_npc:id()
+   if target_is_actor then
+      local targeted_object = level.get_target_obj()
+      local is_targeted = targeted_object and targeted_object:alive() and (targeted_object:id() == observer_npc:id())
+      local debug_message = ""
+
+      if is_targeted then
+
+         local current_weather = level.get_weather()
+         debug_message = string.format(
+            "DST/VDT: %.2f/%.2f | Lum: %.2f | BDY: %.2f | ANM: %.2f | Perc: %.2f | Fcs: %.2f | LGHT: %.2f | WTHR: %.2f | VS/VT: %.d/%d | VEL: %.2f | Weather: %s",
+            object_distance, adjusted_VDT, adjusted_lum_visibility, adjusted_body, animation_factor, adjusted_perception, adjusted_focus, extra_light_factor, weather_factor, vdt_sum, visibility_threshold, adjusted_movement, current_weather
+         )
+         arszi_psy.show_message(debug_message)
+
+         if observer_name ~= observer_npc:character_name() then
+            tip_flag = false
+         end
+         if observer_id == previous_observer and vdt_sum < visibility_threshold then
+            vdt_sum = vdt_sum + visibility_score
+         else
+            vdt_sum = 0
+         end
+         previous_observer = observer_id
+         if vdt_sum >= visibility_threshold and tip_flag == false then
+            news_manager.send_tip(db.actor, string.format("%s sees %s at %.2fm meters", observer_npc:character_name(), target_entity:character_name(), object_distance), 0, nil, 1000)
+            tip_flag = true
+            observer_name = observer_npc:character_name()
+            vdt_sum = 0
+         end
+      end
+   end
+end
+
+-- Print luminance debug info
+function debug_luminance_values(safe_luminance)
+
+   local safe_luminance_avg = get_averaged_value(safe_luminance)
+   local actor_luminance = db.actor:get_luminocity() or 0
+
+   local computed_luminance = get_cached_luminosity(safe_luminance_avg, db.actor)
+
+   local current_weather = level.get_weather()
+
+   local debug_message = string.format(
+      "LUM: %.4f , Original: %.4f, Actor: %.4f, Weather: %s, RawLum: %.4f",
+      computed_luminance, safe_luminance_avg, actor_luminance, current_weather, raw_env_lum
+   )
+   arszi_psy.show_message(debug_message)
+end
+
+-- FIX: "x = revision_mcm.get_config(key) or true" always evaluates to true
+-- even when the person has genuinely switched the MCM option off (false or
+-- true == true in Lua) - this made use_ray_casting/agressive_response
+-- impossible to disable from the MCM menu. This helper only substitutes the
+-- default when the key is truly unset (nil).
+local function get_bool_config(key, default)
+   local v = revision_mcm.get_config(key)
+   if v == nil then return default end
+   return v
+end
+
+-- FIX: was a bare global; called only via RegisterScriptCallback and directly
+-- within this file. Made local.
+-- MCM value fetching
+local function fetch_mcm_values()
+   -- 1. General System Controls
+   enable_debug = revision_mcm.get_config("enable_debug") or false
+   detection_range = revision_mcm.get_config("detection_range") or 80
+   debug_type = revision_mcm.get_config("debug_type") or 1
+
+   -- 2. Weather Adjustments
+   weather_clear = revision_mcm.get_config("weather_clear") or 0.95
+   weather_partly_cloudy = revision_mcm.get_config("weather_partly_cloudy") or 0.9
+   weather_cloudy = revision_mcm.get_config("weather_cloudy") or 0.85
+   weather_cloudy_dark = revision_mcm.get_config("weather_cloudy_dark") or 0.8
+   weather_rain = revision_mcm.get_config("weather_rain") or 0.75
+   weather_storm = revision_mcm.get_config("weather_storm") or 0.7
+   weather_fog = revision_mcm.get_config("weather_fog") or 0.7
+   weather_default = revision_mcm.get_config("weather_default") or 0.9
+
+   -- 3. Luminance Normalization Controls
+   global_luminance_multiplier = revision_mcm.get_config("global_luminance_multiplier") or 1
+   dark_area_boost_strength = revision_mcm.get_config("dark_area_boost_strength") or 0
+   bright_area_nerf_strength = revision_mcm.get_config("bright_area_nerf_strength") or 0
+
+   -- 4. Movement and Body Factors
+   -- FIX: 'or 0.6' was inside get_config(...)'s argument, applying to the
+   -- always-truthy key string rather than the return value, so the fallback
+   -- default could never actually apply.
+   crouch_visibility_multiplier = revision_mcm.get_config("crouch_visibility_multiplier") or 0.6
+   slow_crouch_visibility_multiplier = revision_mcm.get_config("slow_crouch_visibility_multiplier") or 0.4
+   sprinting_visibility_multiplier = revision_mcm.get_config("sprinting_visibility_multiplier") or 1.25
+   surface_noise_intensity = revision_mcm.get_config("surface_noise_intensity") or 0.2
+
+   -- 5. Lighting and Environmental Factors
+   campfire_influence_distance = revision_mcm.get_config("campfire_influence_distance") or 7
+   use_ray_casting = get_bool_config("use_ray_casting", true)
+   indoor_check_frequency = revision_mcm.get_config("indoor_check_frequency") or 10
+
+   -- 6. Animation & Perception Factors
+   fov_central_vision_angle = revision_mcm.get_config("fov_central_vision_angle") or 30
+   fov_peripheral_vision_angle = revision_mcm.get_config("fov_peripheral_vision_angle") or 180
+
+   -- 7. Camo & NVG Factors
+   nvg_bonus_strength = revision_mcm.get_config("nvg_bonus_strength") or 0.5
+   agressive_response = get_bool_config("agressive_response", true)
+
+   -- 8. Master Weather Profile
+   weather_profiles.default[0] = revision_mcm.get_config("key_0") or 0.1
+   weather_profiles.default[2] = revision_mcm.get_config("key_2") or 0.1
+   weather_profiles.default[4] = revision_mcm.get_config("key_4") or 0.1
+   weather_profiles.default[6] = revision_mcm.get_config("key_6") or 0.6
+   weather_profiles.default[8] = revision_mcm.get_config("key_8") or 0.7
+   weather_profiles.default[10] = revision_mcm.get_config("key_10") or 0.8
+   weather_profiles.default[12] = revision_mcm.get_config("key_12") or 0.9
+   weather_profiles.default[14] = revision_mcm.get_config("key_14") or 0.9
+   weather_profiles.default[16] = revision_mcm.get_config("key_16") or 0.8
+   weather_profiles.default[18] = revision_mcm.get_config("key_18") or 0.7
+   weather_profiles.default[20] = revision_mcm.get_config("key_20") or 0.5
+   weather_profiles.default[22] = revision_mcm.get_config("key_22") or 0.1
+end
+
+-- FIX: was a bare global, colliding with the identically-named
+-- actor_on_first_update in revision_indoor_check.script and stealth_nvg.script
+-- (and, in the wider LAMA EDIT pack, redone_ai_aim_settings.script and
+-- redone_npc_fleeing.script) - only whichever file loaded last would ever
+-- actually run, silently dropping the others' init logic. Made local.
+local function actor_on_first_update()
+   npc_attacked = {}
+   fetch_mcm_values()
+   game_timer_seconds("mark", "update_cover_percentage", indoor_check_frequency)
+   local equipped_outfit = db.actor:item_in_slot(7)
+   if not equipped_outfit then return end
+   for i = 1, 13 do
+      local item_in_slot = db.actor:item_in_slot(i)
+      on_item_equipped_or_removed(item_in_slot)
+   end
+end
+
+-- Item equip/remove callback (updates camo/jacket multiplier)
+function on_item_equipped_or_removed(item)
+   if not IsOutfit(item) then return end
+   local current_outfit = db.actor:item_in_slot(7)
+   local kind = current_outfit and ini_sys:r_string_ex(current_outfit:section(),"kind")
+   local has_camo_line = current_outfit and ini_sys:line_exist(current_outfit:section(), "npc_blindness_koeff")
+   outfit_camo_coefficient = has_camo_line and ini_sys:r_float(current_outfit:section(), "npc_blindness_koeff") or 0
+   jacketmult = kind and jacket_t[kind] or 1
+end
+
+-- FIX: was a bare global; not called dot-qualified anywhere. Made local.
+-- Footstep callback (updates surface noise factor)
+local function on_actor_footstep(surface_material)
+   local cleaned_material = string.gsub(surface_material, "materials\\", "")
+   if cleaned_material == "grass" then
+      surface_noise_factor = surface_noise_intensity
+   elseif cleaned_material == "bush" then
+      surface_noise_factor = surface_noise_intensity * 2
+   else
+      surface_noise_factor = 0
+   end
+end
+
+-- FIX (LAMA EDIT integration): restored from LAMA EDIT's visual_memory_manager.script.
+-- This is the ONLY thing that makes the native engine weapon_fired event reach
+-- the "npc_on_weapon_fired" script callback for NPCs (as opposed to the actor,
+-- who has his own native "actor_on_weapon_fired" callback already). Without
+-- this block, RegisterScriptCallback("npc_on_weapon_fired", ...) below
+-- registers a listener for an event that is never sent, and NPC muzzle
+-- flashes never make them more visible to each other.
+if correct_game_ver then
+   AddScriptCallback("npc_on_weapon_fired")
+   function xr_motivator.motivator_binder:weapon_fired()
+      SendScriptCallback("npc_on_weapon_fired", self.object, self.object:active_item())
+   end
+end
+
+-- FIX (LAMA EDIT integration): restored from LAMA EDIT. Wires each spawned
+-- NPC's native weapon_fired object callback into the binder method patched
+-- above. Kept local since stealth_nvg.script has its own, unrelated
+-- npc_on_net_spawn local handler for the same event name - RegisterScriptCallback
+-- supports multiple listeners so both run fine as long as both are local.
+local function npc_on_net_spawn(npc)
+   if not (npc and IsStalker(npc) and npc.alive and npc:alive()) then return end
+   local binder = npc.binded_object and npc:binded_object()
+   if not binder then return end
+   npc:set_callback(callback.weapon_fired, binder.weapon_fired, binder)
+end
+
+-- FIX: was a bare global; not called dot-qualified anywhere. Made local.
+-- Actor weapon fired callback (muzzle flash)
+local function actor_on_weapon_fired()
+    local wpn = db.actor:active_item()
+    if not (wpn) or not (IsWeapon(wpn)) or IsMelee(wpn) or wpn:weapon_is_silencer() then return end
+
+    muzzle_flashes[db.actor:id()] = MUZZLE_FLASH_BONUS
+
+    local function wpn_fired_stop(id)
+        muzzle_flashes[id] = 0
+        return true
+    end
+    CreateTimeEvent("retina_wpn_fired_e_" .. db.actor:id(), "retina_wpn_fired_a_" .. db.actor:id(), MUZZLE_FLASH_DURATION, wpn_fired_stop, db.actor:id())
+end
+
+-- FIX (LAMA EDIT integration): was a bare global, and previously did nothing
+-- because nothing ever sent the "npc_on_weapon_fired" script event for NPCs -
+-- see the restored xr_motivator/npc_on_net_spawn bridge above. Made local to
+-- match the established convention for RegisterScriptCallback listeners.
+-- NPC weapon fired callback (muzzle flash)
+local function npc_on_weapon_fired(npc, wpn)
+    if not (wpn) or not (IsWeapon(wpn)) or IsMelee(wpn) or wpn:weapon_is_silencer() then return end
+    if not (npc and IsStalker(npc) and npc.alive and npc:alive()) then return end
+
+    muzzle_flashes[npc:id()] = MUZZLE_FLASH_BONUS
+
+    local function wpn_fired_stop(id)
+        muzzle_flashes[id] = 0
+        return true
+    end
+    CreateTimeEvent("retina_wpn_fired_e_" .. npc:id(), "retina_wpn_fired_a_" .. npc:id(), MUZZLE_FLASH_DURATION, wpn_fired_stop, npc:id())
+end
+
+-- FIX (LAMA EDIT integration): restored from LAMA EDIT's visual_memory_manager.script,
+-- registered for both npc_on_before_hit and monster_on_before_hit (matches
+-- redone_npc_fleeing.script's own handler for the same two events - different
+-- local functions, no conflict). Two bugs fixed relative to the LAMA EDIT
+-- original while porting:
+--   1. marked[npc:id()] was set to boolean `true`, then compared downstream
+--      (in get_visible_value below) with "== target_entity:id()" - a boolean
+--      is never == a number, so the whole marked-target bonus was dead code
+--      in LAMA EDIT. Now stores the attacker's id instead, which is what the
+--      comparison actually needs to work.
+--   2. "IsStalker(s_hit.draftsman) or s_hit.draftsman:id() == db.actor:id()"
+--      called :id() on s_hit.draftsman without checking it exists first -
+--      anomaly/environmental damage can report a hit with no draftsman,
+--      which would crash here. Guarded before touching it, and added the
+--      IsStalker/IsMonster + alive() guard on npc itself up front, since
+--      both npc_on_before_hit and monster_on_before_hit can report entities
+--      this doesn't expect.
+local function npc_on_before_hit(npc, s_hit, bone_id, flags)
+   if not (npc and (IsStalker(npc) or IsMonster(npc)) and npc:alive()) then return end
+
+   local attacker = s_hit and s_hit.draftsman
+   if not attacker then return end
+
+   if IsStalker(attacker) or attacker:id() == db.actor:id() then
+      local attacker_id = attacker:id()
+      marked[npc:id()] = attacker_id
+
+      local squad = get_object_squad(npc)
+      if squad and squad.commander_id then
+         for m in squad:squad_members() do
+            local member = level.object_by_id(m.id)
+            if member and member:alive() then
+               marked[member:id()] = attacker_id
+            end
+         end
+      end
+   end
+end
+
+-- FIX: was a bare global; not called dot-qualified anywhere. Made local.
+-- NPC on hit callback (aggressive response from being shot)
+local function npc_on_hit_callback(npc,amount,local_direction,who,bone_index)
+   if who:id() == db.actor:id() then
+      table.insert(npc_attacked, npc:id())
+   end
+end
+
+-- Game timer utility for simple duration checks (seconds only)
+function game_timer_seconds(state, alarm_name, duration_seconds)
+    if not alarm_name or alarm_name == "" then
+        return false
+    end
+
+    if state == "mark" then
+        if marked_times[alarm_name] then
+            if marked_times[alarm_name].duration_type ~= "seconds" then
+                return false
+            end
+
+            local time_diff_seconds = game.get_game_time():diffSec(marked_times[alarm_name].time)
+
+            if time_diff_seconds < marked_times[alarm_name].duration_seconds then
+                return false
+            end
+        end
+
+        if type(duration_seconds) ~= "number" then
+            return false
+        end
+
+        marked_times[alarm_name] = {
+            time = game.get_game_time(),
+            duration_seconds = duration_seconds,
+            duration_type = "seconds"
+        }
+        return true
+
+    elseif state == "check" then
+        if not marked_times[alarm_name] then
+            if type(duration_seconds) == "number" then
+                -- Treat as 'mark' if duration_seconds is provided
+                marked_times[alarm_name] = {
+                    time = game.get_game_time(),
+                    duration_seconds = duration_seconds,
+                    duration_type = "seconds"
+                }
+                return true
+            else
+                return false
+            end
+        end
+
+        if marked_times[alarm_name].duration_type ~= "seconds" then
+             return false
+        end
+
+        local time_diff_seconds = game.get_game_time():diffSec(marked_times[alarm_name].time)
+
+        if time_diff_seconds >= marked_times[alarm_name].duration_seconds then
+            return true
+        else
+            return false
+        end
+
+    elseif state == "clear" then
+        if marked_times[alarm_name] then
+            marked_times[alarm_name] = nil
+            return true
+        else
+            return false
+        end
+
+    elseif state == "peek" then
+        if not marked_times[alarm_name] then
+            return false
+        end
+
+        if marked_times[alarm_name].duration_type ~= "seconds" then
+             return false
+        end
+
+        local time_diff_seconds = game.get_game_time():diffSec(marked_times[alarm_name].time)
+        return time_diff_seconds
+
+    else
+        return false
+    end
+end
+
+local math_cos = math.cos
+local math_rad = math.rad
+
+function npc_is_in_fov(observer_npc, target_npc, max_distance, min_angle_degrees, max_angle_degrees)
+    local observer_pos = observer_npc:position()
+    local target_pos   = target_npc:position()
+
+    if observer_pos:distance_to(target_pos) > max_distance then
+        return false, 0
+    end
+
+    local vec_to_target = target_pos:sub(observer_pos)
+    vec_to_target:normalize()
+
+    local observer_dir = observer_npc:direction()
+
+    local cos_angle = observer_dir:dotproduct(vec_to_target)
+
+    local cos_min = math.cos(math.rad(min_angle_degrees / 2))
+    local cos_max = math.cos(math.rad(max_angle_degrees / 2))
+
+    if cos_angle < cos_max then
+        return false, 0
+    end
+
+    if cos_angle >= cos_min then
+        return true, 1
+    end
+
+    local perception = (cos_angle - cos_max) / (cos_min - cos_max)
+
+    return true, perception
+end
+
+-- Light gem function. Returns proper luminance. (Dummy implementation)
+function icon_lum()
+   local env_lum = get_cached_luminosity(safe_luminance, db.actor)
+   local actor_lum = math.max(env_lum,clamp(light_on_actor - 1, 0, 1))
+  return actor_lum
+end
+
+-- Cached accessor for per-target luminosity to avoid repeated heavy computation
+function get_cached_luminosity(safe_vdt_factor, target_entity)
+   local id = target_entity and target_entity:id() or -1
+   local entry = lum_cache[id]
+   if entry and entry.time then
+      local elapsed = game.get_game_time():diffSec(entry.time)
+      if elapsed < lum_cache_ttl then
+         return entry.value
+      end
+   end
+   local val = compute_luminosity_factors(safe_vdt_factor, target_entity)
+   lum_cache[id] = { value = val, time = game.get_game_time() }
+   return val
+end
+
+-- ------------------------------------------------------------------
+-- VII. SCRIPT ENTRY POINT
+-- ------------------------------------------------------------------
+
+-- FIX (LAMA EDIT integration): was a bare global "on_game_start" - this is
+-- X-Ray's single hardcoded engine entry point (confirmed: zero uses of
+-- RegisterScriptCallback("on_game_start", ...) anywhere in the LAMA EDIT
+-- pack), and revision_indoor_check.script ALSO declares a bare global
+-- on_game_start. With both bare, whichever of the two loaded last (alphabetically,
+-- visual_memory_manager.script after revision_indoor_check.script) permanently
+-- overwrote modules.script's real central dispatcher - meaning NONE of the
+-- other ~10 LoadScheme-registered RE:DONE Combat AI components' on_game_start
+-- methods would ever run. Namespaced to match modules.script's dispatcher
+-- (`_G[filename].on_game_start()`), which already has a
+-- LoadScheme("visual_memory_manager", ...) entry so no modules.script edit is
+-- needed for this file specifically (revision_indoor_check.script needs its
+-- own entry added - see that file).
+function visual_memory_manager.on_game_start()
+   -- Eager initial sync, mirroring LAMA EDIT's on_game_start calling
+   -- on_option_change() once directly - a safety net alongside the
+   -- on_option_change listener below in case actor_on_first_update is ever
+   -- skipped.
+   fetch_mcm_values()
+
+   RegisterScriptCallback("actor_on_update", update_stealth_indicator)
+   RegisterScriptCallback("actor_on_first_update", actor_on_first_update)
+   RegisterScriptCallback("actor_item_to_slot", on_item_equipped_or_removed)
+   RegisterScriptCallback("actor_item_to_ruck", on_item_equipped_or_removed)
+   RegisterScriptCallback("actor_on_item_drop", on_item_equipped_or_removed)
+   RegisterScriptCallback("actor_on_footstep", on_actor_footstep)
+   RegisterScriptCallback("actor_on_weapon_fired", actor_on_weapon_fired)
+   RegisterScriptCallback("on_option_change", fetch_mcm_values)
+   RegisterScriptCallback("npc_on_hit_callback", npc_on_hit_callback)
+
+   -- FIX (LAMA EDIT integration): restored native bridge + marked-target
+   -- registrations, gated by the same correct_game_ver check LAMA EDIT used.
+   if correct_game_ver then
+      RegisterScriptCallback("npc_on_net_spawn", npc_on_net_spawn)
+      RegisterScriptCallback("npc_on_weapon_fired", npc_on_weapon_fired)
+      RegisterScriptCallback("npc_on_before_hit", npc_on_before_hit)
+      RegisterScriptCallback("monster_on_before_hit", npc_on_before_hit)
+   end
+end
