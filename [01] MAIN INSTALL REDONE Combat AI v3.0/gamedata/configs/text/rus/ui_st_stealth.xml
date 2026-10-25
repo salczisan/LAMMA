@@ -1,0 +1,911 @@
+<?xml version="1.0" encoding="windows-1251"?>
+
+<!-- 
+	MCM
+-->
+<string_table>
+	<!-- MCM MENU -->
+	<string id="ui_mcm_menu_stealth">
+		<text>RE:DONE Combat AI</text>
+	</string>
+
+	<!-- STEALTH -->
+	<string id="ui_mcm_menu_stealth_tab">
+		<text>Скрытность</text>
+	</string>
+	<string id="ui_mcm_stealth_title">
+		<text>Скрытность</text>
+	</string>
+
+	<string id="ui_mcm_stealth_header_main">
+		<text>Настройки скрытности</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_memory">
+		<text>Память</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_memory_desc">
+		<text>Множитель памяти. (Если NPC уже видел цель, он получит бонус к обнаружению этой цели. Бонус уменьшается со временем; при стандартном значении 1.0 NPC требуется около 100 секунд реального времени, чтобы полностью потерять этот бонус.) 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_luminocity">
+		<text>Освещённость</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_luminocity_desc">
+		<text>Множитель освещённости. (Количество света на объекте.) 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_distance">
+		<text>Дистанция</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_distance_desc">
+		<text>Множитель дистанции. (Расстояние между объектами, дальность и поле зрения.) 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_velocity">
+		<text>Скорость</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_velocity_desc">
+		<text>Множитель скорости. (Скорость объекта.) 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_weight">
+		<text>Вес</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_weight_desc">
+		<text>Множитель веса. (Переносимый игроком вес.) 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_crouch">
+		<text>Приседание</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_crouch_desc">
+		<text>Множитель приседания. 
+ 
+ По умолчанию: 0.4</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_low_crouch">
+		<text>Низкое приседание</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_low_crouch_desc">
+		<text>Множитель низкого приседания. 
+ 
+ По умолчанию: 0.25</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_nvg_val">
+		<text>ПНВ у NPC</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_nvg_val_desc">
+		<text>Некоторые NPC используют ПНВ вместо налобного фонаря. Значение ПНВ добавляется независимо от дистанции, в отличие от фонаря. ("0" отключает функцию.) 
+ 
+ По умолчанию: 1</text>
+	</string>
+
+		<!-- HUD -->
+	<string id="ui_mcm_stealth_header_hud">
+		<text>HUD</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_icon">
+		<text>Иконка</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_icon_desc">
+		<text>Иконка освещённости. (Показывает уровень света на игроке.)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_icon_type">
+		<text>Тип иконки</text>
+	</string>
+	<string id="ui_mcm_stealth_stealth_tab_icon_type_desc">
+		<text>1) "Индикатор света" показывает количество света на игроке. 
+ 
+ 2) "Зрение NPC" показывает, как NPC с наибольшим значением видимости воспринимает игрока: 
+ - Белая иконка: NPC в обычном состоянии и не видит игрока; 
+ - Жёлтая иконка: NPC в бою/опасности, имеет усиленные параметры зрения и не видит игрока; 
+ - Красная иконка: NPC видит игрока.</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_icon_x">
+		<text>Положение иконки X</text>
+	</string>
+
+	<string id="ui_mcm_stealth_stealth_tab_icon_y">
+		<text>Положение иконки Y</text>
+	</string>
+
+	<!-- COMBAT TAB -->
+	<string id="ui_mcm_menu_combat_tab">
+		<text>Combat AI</text>
+	</string>
+
+	<string id="ui_mcm_menu_uninstall_tab">
+		<text>Безопасное удаление</text>
+	</string>
+
+	<string id="ui_mcm_menu_combat_tab_settings">
+		<text>Основные</text>
+	</string>
+
+	<string id="ui_mcm_combat_title">
+		<text>Combat AI</text>
+	</string>
+	<!-- Safe Uninstall -->
+	<string id="ui_mcm_combat_uninstall_header">
+		<text>Безопасное удаление</text>
+	</string>
+	<string id="ui_mcm_combat_uninstall_warning">
+		<text>ВАЖНО - БЕЗОПАСНОЕ УДАЛЕНИЕ:
+1) Включите параметр ниже и нажмите «Применить».
+2) Один раз начните НОВУЮ ИГРУ.
+3) После загрузки новой игры штатно выйдите из игры.
+4) Удалите RE:DONE Combat AI.
+Это восстановит стандартные значения точности ИИ и сохранит их обратно в user.ltx.</text>
+	</string>
+	<string id="ui_mcm_stealth_uninstall_tab_uninstall_mode">
+		<text>Безопасное удаление / восстановить стандартную точность</text>
+	</string>
+	<string id="ui_mcm_stealth_uninstall_tab_uninstall_mode_desc">
+		<text>Восстанавливает стандартные консольные значения точности ИИ и сразу сохраняет текущую конфигурацию консоли в user.ltx. Используйте только перед удалением RE:DONE Combat AI. По умолчанию: выключено</text>
+	</string>
+
+
+	<string id="ui_mcm_combat_header_main">
+		<text>Настройки Combat AI</text>
+	</string>
+
+	<string id="ui_mcm_combat_header_main2">
+		<text>Настройки NPC</text>
+	</string>
+
+	<!-- Alert\Danger -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_danger">
+		<text>Оповещение об опасности</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_danger_desc">
+		<text>Включает поведение Danger Alert для NPC. Позволяет NPC реагировать на дружественные и враждебные источники опасности. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Aim-->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_aim">
+		<text>Точность по рангу</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_aim_desc">
+    		<text>Включает систему Combat AI Aim, которая динамически изменяет углы прицеливания, скорость и упреждение NPC в зависимости от условий, погоды и ранга NPC. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Target -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_target">
+		<text>Выбор цели</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_target_desc">
+		<text>Включает изменённую логику выбора целей ИИ. NPC оценивают противников через engine best_danger, данные памяти и сохранённое состояние врага. Влияет на выбор и обновление боевых целей во время столкновения. 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Weapon -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_wpn">
+		<text>Выбор оружия</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_wpn_desc">
+		<text>Позволяет NPC динамически менять оружие. NPC выбирают наиболее подходящее оружие для текущего боя. Например, при наличии дробовика NPC будет использовать его на ближней дистанции. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Suicide -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_suicide">
+		<text>Самоубийство</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_suicide_desc">
+		<text>Включает поведение самоубийства для NPC всех группировок. Срабатывает, когда NPC критически ранен, сдаётся и рядом находится видимый враг. Если отключено, исходное поведение сохраняется только у NPC Монолита. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Medkit -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_medkit">
+		<text>Аптечки</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_medkit_desc">
+		<text>Позволяет NPC получать аптечки для использования в бою. Количество зависит от ранга: минимум 1, максимум 3. WIP 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Light -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_headlight">
+		<text>Налобные фонари</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_ai_headlight_desc">
+		<text>Отключает налобные фонари NPC во время ночного боя. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- xr_meet -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_xr_meet">
+		<text>Диалог</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_enable_xr_meet_desc">
+		<text>Не позволяет NPC начинать диалог, пока они находятся в бою. 
+ 
+ По умолчанию: выключено</text>
+	</string>
+
+	<!-- Detection -->
+	<string id="ui_mcm_detection_settings_title">
+		<text>Обнаружение ИИ</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_detection">
+		<text>Включить обнаружение Combat AI</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_detection_desc">
+		<text>Включает систему обнаружения NPC. NPC замечают игрока с учётом скорости движения, переносимого веса, погоды, использования фонаря и собственного ранга.
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Detection Foggy Combat -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_foggy_combat">
+		<text>Обнаружение в тумане</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_foggy_combat_desc">
+		<text>Включает обнаружение в туманную погоду до начала боя. NPC не вступают в бой, пока не будет достигнут порог дистанции. WIP.
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Detection Sniper Combat -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_sniper_combat">
+		<text>Обнаружение снайпера</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_sniper_combat_desc">
+		<text>Включает снайперскую реакцию NPC, когда игрок использует снайперскую винтовку. Вместо прямого сближения NPC переходят к схеме удержания позиции. WIP.
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Detection Rank-->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_rank_enabled">
+		<text>Модификатор ранга</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_rank_enabled_desc">
+		<text>Включает модификаторы ранга для проверок обнаружения NPC. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_rank_mult">
+		<text>Влияние ранга</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_rank_mult_desc">
+		<text>Определяет, насколько сильно ранг NPC влияет на проверки обнаружения. 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_weather_enabled">
+		<text>Модификатор погоды</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_weather_enabled_desc">
+		<text>Включает погодные модификаторы для проверок обнаружения NPC. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_weather_mult">
+		<text>Влияние погоды</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_detection_weather_mult_desc">
+		<text>Определяет, насколько сильно погода влияет на проверки обнаружения NPC. 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<!-- Sound -->
+	<string id="ui_mcm_sound_settings_title">
+		<text>Звук ИИ</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_sound">
+		<text>Включить звук Combat AI</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_redone_ai_sound_desc">
+		<text>Включает реакцию NPC на звуки до начала боя. NPC реагируют на звуки игрока и других NPC с учётом дистанции, типа звука, погоды и ранга. Включите звуки в бою, чтобы NPC могли обнаруживать шум во время боя. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_DNG_mult">
+		<text>Опасность</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_DNG_mult_desc">
+		<text>Множитель реакции NPC на звуки опасности (выстрел/попадание оружия, удар/атака мутанта). 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_WPN_mult">
+		<text>Оружие</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_WPN_mult_desc">
+		<text>Множитель реакции NPC на звуки оружия (пустой магазин/перезарядка/смена оружия). 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_MST_mult">
+		<text>NPC/Мутанты</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_MST_mult_desc">
+		<text>Множитель реакции NPC на звуки мутантов и других NPC (шаги/разговор/еда). 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_ITM_mult">
+		<text>Предметы</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_ITM_mult_desc">
+		<text>Множитель реакции NPC на звуки предметов (использование/подбор/выбрасывание). 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<!-- Sound Limit-->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_combat_enabled">
+		<text>Звуки в бою</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_combat_enabled_desc">
+		<text>Позволяет NPC обнаруживать звуки во время боя. 
+ 
+ По умолчанию: включено</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_limit">
+		<text>Дальность звука в бою</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_limit_desc">
+		<text>Умножает базовую дальность обнаружения звука NPC в бою. Более высокие значения повышают чувствительность слуха, более низкие - уменьшают её.
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<!-- Sound Rank -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_rank_enabled">
+		<text>Модификатор ранга</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_rank_enabled_desc">
+		<text>Включает модификаторы ранга для проверок звука NPC. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_rank_mult">
+		<text>Влияние ранга</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_rank_mult_desc">
+		<text>Определяет, насколько сильно ранг NPC влияет на проверки звука. 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<!-- Sound Weather -->
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_weather_enabled">
+		<text>Модификатор погоды</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_weather_enabled_desc">
+		<text>Включает погодные модификаторы для обнаружения звуков NPC. 
+ 
+ По умолчанию: включено</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_weather_mult">
+		<text>Влияние погоды</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_settings_sound_weather_mult_desc">
+		<text>Определяет, насколько сильно погода влияет на обнаружение звуков NPC. 
+ 
+ По умолчанию: 1.0</text>
+	</string>
+
+	<!-- MODE -->
+	<string id="ui_mcm_menu_combat_tab_mode">
+		<text>Режим</text>
+	</string>
+
+	<string id="ui_mcm_combat_mode_header_main">
+		<text>Режим ИИ</text>
+	</string>
+
+	<string id="ui_mcm_combat_mode_selection_header">
+		<text>Выбор режима боя</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_behavior_mode_lst_behavior_mode_cinema">
+		<text>Кинематографический режим ИИ</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_behavior_mode_lst_behavior_mode_vanilla">
+		<text>Стандартный режим ИИ</text>
+	</string>
+
+	<string id="ui_mcm_behavior_mode">
+		<text>Боевой режим</text>
+	</string>
+	<string id="ui_mcm_behavior_mode_desc">
+		<text>КИНЕМАТОГРАФИЧЕСКИЙ РЕЖИМ: эта система ограничивает активацию Combat AI визуальным контактом, поэтому NPC не вступают и не остаются в боевом состоянии, если не видят цель напрямую. 
+ 
+ NPC прекращают удерживать позицию и оборонительное поведение, если остаются открытыми без визуального контакта, что делает реакцию более последовательной и привязанной к линии видимости. 
+ 
+ Поведение NPC зависит от порогов дистанции: на коротких дистанциях они действуют динамичнее, на больших чаще удерживают позицию. Для более сложного боевого поведения требуется визуальный контакт игрока с NPC. 
+ 
+ При включении логика Combat AI применяется также к боям NPC против NPC; обычно расширенная логика ограничена боями, связанными с игроком. 
+ 
+ Это создаёт более кинематографичные столкновения, где решения зависят от видимости, дистанции и позиции. 
+ 
+ СТАНДАРТНЫЙ РЕЖИМ: логика Combat AI применяется только в боях Игрок против NPC. 
+ 
+ Бои NPC против NPC не используют расширенное поведение Combat AI и работают ближе к стандартной логике, сохраняя общие улучшения системы. 
+ 
+ Расширенная боевая логика сосредоточена на взаимодействии с игроком. 
+</text>
+	</string>
+
+		<!-- AGGRESSION -->
+	<string id="ui_mcm_aggression_mode">
+		<text>Режим агрессии</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_aggression_mode_lst_aggression_aggressive">
+		<text>Агрессивный</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_aggression_mode_lst_aggression_balanced">
+		<text>Сбалансированный</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_aggression_mode_lst_aggression_defensive">
+		<text>Оборонительный</text>
+	</string>
+	<string id="ui_mcm_aggression_mode_desc">
+		<text>Определяет, сколько времени NPC могут двигаться перед возвращением к укрытию/удержанию позиции, тем самым меняя воспринимаемую агрессивность в бою. Таймер сбрасывается после каждого боевого стимула, например выстрела или обнаружения врага. 
+ Этот параметр меняет только временные пороги движения; базовые схемы coward, dumb и stupid остаются без изменений, как и правила атаки по группировке/рангу. 
+- АГРЕССИВНЫЙ: высокие пороги движения, NPC чаще перемещаются и действуют. 
+- СБАЛАНСИРОВАННЫЙ: умеренные пороги, NPC чередуют продвижение и удержание позиции. 
+- ОБОРОНИТЕЛЬНЫЙ: низкие пороги, NPC чаще остаются в укрытии и двигаются только при необходимости. 
+По умолчанию: Сбалансированный</text>
+	</string>
+
+		<!-- MOVEMENTS -->
+	<string id="ui_mcm_movement_mode_selection_header">
+		<text>Выбор режима движения</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_combat">
+		<text>Боевое позиционирование</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_combat_desc">
+		<text>Включает логику боевого позиционирования ИИ с учётом группировки, ранга и типа оружия. При отсутствии прямой видимости врага NPC стараются сохранять тактическую дистанцию. В основном влияет на среднюю и ближнюю дистанцию. 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_cover">
+		<text>Перемещение между укрытиями</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_cover_desc">
+		<text>Включает перемещение ИИ между укрытиями. Во время боя без прямой видимости врага NPC могут менять позиции укрытия. В основном применяется на средней и ближней дистанции. 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_sprint">
+		<text>Спринт в бою</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_sprint_desc">
+		<text>Разрешает NPC использовать спринт во время боя. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_prone">
+		<text>Положение лёжа</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_prone_desc">
+		<text>Разрешает NPC использовать положение лёжа в бою. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+		<!-- WOUNDED -->
+	<string id="ui_mcm_wounded_mode_selection_header">
+		<text>Выбор режима ранений</text>
+	</string>
+
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_wounds">
+		<text>Состояние ранения</text>
+	</string>
+	<string id="ui_mcm_stealth_combat_tab_combat_tab_mode_enable_ai_wounds_desc">
+		<text>Позволяет NPC использовать состояния ранения, зависящие от ранга и группировки. Определяет, когда NPC получает критическое ранение и ложится, с учётом HP и состояния ранения. 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_wounded_mode">
+		<text>Режим ранений</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_wounded_mode_lst_wounded_resilient">
+		<text>Стойкий</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_wounded_mode_lst_wounded_balanced">
+		<text>Сбалансированный</text>
+	</string>
+	<string id="stealth_combat_tab_combat_tab_mode_wounded_mode_lst_wounded_vulnerable">
+		<text>Уязвимый</text>
+	</string>
+	<string id="ui_mcm_wounded_mode_desc">
+		<text>Определяет, насколько легко NPC переходят в состояние ранения во время боя. 
+- СТОЙКИЙ: требуется больше урона, прежде чем NPC станет раненым. 
+ 
+- СБАЛАНСИРОВАННЫЙ: стандартный баланс ранений Combat AI. 
+ 
+- УЯЗВИМЫЙ: требуется меньше урона, прежде чем NPC станет раненым. 
+ 
+По умолчанию: Сбалансированный</text>
+	</string>
+
+	<!-- PANIC -->
+	<string id="ui_mcm_menu_panic_tab">
+		<text>Бегство NPC</text>
+	</string>
+
+	<string id="ui_mcm_npc_flee_title">
+		<text>Бегство NPC</text>
+	</string>
+
+	<string id="ui_mcm_npc_flee_header_main">
+		<text>Настройки бегства NPC</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_npc_flee">
+		<text>Включить бегство NPC</text>
+	</string>
+
+	<string id="ui_mcm_npc_panic_header_main">
+		<text>Выбор паники</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_npc_panic">
+		<text>Паника NPC</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_npc_panic_desc">
+		<text>Включает поведение паники NPC. NPC могут менять позицию в бою или бежать к ближайшей smart terrain при низком здоровье и неблагоприятном боевом давлении (с учётом ранга, соотношения сил и случайных факторов морали). 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_squad_panic">
+		<text>Паника отряда</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enable_squad_panic_desc">
+		<text>Включает панику отряда. Отряды будут отступать к ближайшей smart terrain при высоком боевом давлении (с учётом ранга и соотношения сил). 
+ 
+ По умолчанию: включено</text>
+	</string>
+
+	<!-- Hp -->
+	<string id="ui_mcm_npc_flee_header_hp">
+		<text>Здоровье (паника срабатывает ниже порога HP) (только паника NPC)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_npc_flee_hp">
+		<text>Порог здоровья</text>
+	</string>
+
+	<!-- Powers -->
+	<string id="ui_mcm_npc_flee_header_power">
+		<text>Силы (паника начинается, если "enemies_power &gt; friends_power*threshold_mult")</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_threshold_mult">
+		<text>Множитель порога</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_companion_pwr">
+		<text>Множитель силы напарников</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enemies_pwr_mult">
+		<text>Множитель силы врагов</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_friends_pwr_mult">
+	    <text>Множитель силы союзников</text>
+	</string>
+
+	<!-- Distance before panic -->
+	<string id="ui_mcm_npc_flee_header_dist_before">
+		<text>Радиус (до начала паники сила врагов/союзников считается только в этом радиусе)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enemies_radius">
+		<text>Радиус врагов</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_friends_radius">
+		<text>Радиус союзников</text>
+	</string>
+
+	<!-- Distance after panic -->
+	<string id="ui_mcm_npc_flee_header_dist_after">
+		<text>Радиус 2 (во время паники меньший радиус используется для отмены при слабых врагах рядом)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_enemies_upd_radius">
+		<text>Радиус врагов 2</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_friends_upd_radius">
+		<text>Радиус союзников 2</text>
+	</string>
+
+	<!-- Others -->
+	<string id="ui_mcm_npc_flee_header_others">
+		<text>Прочее</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_start_flee_time">
+		<text>Первые секунды паники без отмены</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_start_flee_time_desc">
+		<text>Первые секунды после начала паники, когда её нельзя отменить из-за слабого врага или попаданий.</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_protection_time">
+		<text>Защита от повторной паники (сек.)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_protection_time_desc">
+		<text>После прекращения паники NPC не может снова запаниковать в течение этого времени.</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_cancel_on_hit">
+		<text>Отменять панику при попадании по NPC</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_hits_to_cancel">
+		<text>Количество попаданий для отмены паники</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_smart_min_dist">
+		<text>Минимальная дистанция для бегства</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_smart_min_dist_desc">
+		<text>Цель для бегства выбирается только если она находится дальше этого значения.</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_cover_time">
+		<text>Время прикрытия отряда (0 - отключить)</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_cover_time_desc">
+		<text>Самый дальний NPC будет прикрывать отступление своего отряда.</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_smoke_enabled">
+		<text>Дымовые гранаты</text>
+	</string>
+
+	<string id="ui_mcm_stealth_panic_tab_flee_dbg">
+		<text>Отладка (вывод в консоль)</text>
+	</string>
+
+
+	<!-- PATCH -->
+	<string id="ui_mcm_menu_patch_tab">
+		<text>Патчи</text>
+	</string>
+
+	<string id="ui_mcm_patch_title">
+		<text>Патчи</text>
+	</string>
+
+	<string id="ui_mcm_stealth_patch_tab_mora_combat_ignore">
+		<text>Патч Mora Combat Ignore Military Fix v2.2</text>
+	</string>
+	<string id="ui_mcm_stealth_patch_tab_mora_combat_ignore_desc">
+		<text>На Кордоне Одиночки и Военные соблюдают напряжённое перемирие и избегают открытого конфликта на расстоянии. Бой начинается только при близком контакте или прямой провокации. Отключите, чтобы вернуть обычную враждебность. Этот патч следует включать вместе с RE:DONE Collection Addon.</text>
+	</string>
+
+	<string id="ui_mcm_mora_npc_amnesia_info">
+		<text>Патч Mora NPCs without amnesia v3.0: эта функция встроена в Combat AI и всегда включена. Её нельзя отключить, дополнительных действий не требуется.</text>
+	</string>
+
+	<string id="ui_mcm_stealth_patch_tab_michiko_patch">
+		<text>Патч Michiko Weather</text>
+	</string>
+	<string id="ui_mcm_stealth_patch_tab_michiko_patch_desc">
+		<text>Рекомендуется включить, если вы используете погоду Michiko.</text>
+	</string>
+
+	<!-- DEBUG -->
+	<string id="ui_mcm_menu_debug_tab">
+		<text>Отладка</text>
+	</string>
+
+	<string id="ui_mcm_debug_title">
+		<text>Отладка</text>
+	</string>
+
+	<string id="ui_mcm_dubug_stealth_header_main">
+		<text>Отладка скрытности</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debugx">
+		<text>Включить отладку</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debugx_desc">
+		<text>Показывает переменные формулы (для корректного порога необходимо постоянно держать курсор на объекте): 
+ 
+ Консоль: все переменные 
+ 
+ Динамические новости: видит объект игрока или нет 
+ 
+ Сообщение внизу экрана: порог видимости объекта и переменные, которые можно изменить в MCM</text>
+	</string>
+
+	<string id="ui_mcm_dubug_panic_header_main">
+		<text>Отладка бегства NPC</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_flee_dbg">
+		<text>Включить отладку (вывод в консоль)</text>
+	</string>
+
+	<string id="ui_mcm_dubug_combat_debug_header_main">
+		<text>Отладка Combat AI</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_alert">
+		<text>Отладка Danger ALERT</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_alert_desc">
+		<text>Показывает переменные состояния NPC ALERT: 
+ 
+ Консоль: имя NPC, стадия, дистанция, видимость цели и отношение к игроку 
+ 
+ Динамические новости: отключено 
+ 
+ Сообщение внизу экрана: отключено</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_aim">
+		<text>Отладка Rank AIM</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_aim_desc">
+		<text>Показывает информацию обновления прицеливания ИИ: 
+ 
+ Консоль: события обновления прицеливания 
+ 
+ Консоль: ID NPC, ранг и значение ранга 
+ 
+ Используется для проверки масштабирования точности ИИ по рангу</text>
+	</string>
+
+
+	<string id="ui_mcm_stealth_debug_tab_debug_medkit">
+		<text>Отладка аптечек NPC</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_medkit_desc">
+		<text>Показывает информацию о самолечении NPC: 
+ 
+ Консоль: получение аптечек NPC 
+ 
+ Консоль: использование аптечек и бинтов 
+ 
+ Консоль: события лечения и восстановления от кровотечения</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_movement">
+		<text>Отладка боевых перемещений</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_movement_desc">
+		<text>Показывает решения NPC по боевому перемещению: 
+ 
+ Консоль: выбранные действия перемещения 
+ 
+ Консоль: переопределения движения по рангу и оружию 
+ 
+ Используется для проверки поведения боевого перемещения</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_detection">
+		<text>Отладка обнаружения</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_detection_desc">
+		<text>Выводит сообщения системы обнаружения в консоль:
+ 
+ Консоль: [DETECTION] 
+ 
+ Определение состояния движения игрока 
+ 
+ События обнаружения погоды, дождя, тумана и фонаря</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_sound">
+		<text>Отладка звука</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_sound_desc">
+		<text>Выводит в консоль систему SOUND / HEARING:
+ 
+ Консоль: [SOUND] 
+ 
+ Обработка callback слуха NPC (npc_on_hear_callback) 
+ 
+ Классификация звука: оружие, опасность, предмет, движение, бой 
+ 
+ Обнаружение звука по дистанции с множителями ранга, погоды и типа 
+ 
+ Реакция на звук в бою (радиус шума -&gt; state_mgr assault) 
+ 
+ Распространение опасности и триггеры видимости</text>
+	</string>
+
+	<string id="ui_mcm_dubug_combat_debug_header_enemy_id">
+		<text>Отладка Combat ID</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_meta">
+		<text>Отладка Meta ID</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_meta_desc">
+		<text>Логирование операций META switch-table (кэширование состояний NPC/ENEMY): 
+ Консоль: доступ к switch-table / попадание в кэш / инициализация / очистка 
+ Режим: RAW (все обращения) / CLEAN (только изменения состояния) 
+ Область: таблицы состояний NPC, кэш врага, обработка приоритетов 
+ 
+ Режим CLEAN удаляет повторяющиеся записи для одинаковых переходов состояния</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_enemy">
+		<text>Отладка Enemy ID</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_enemy_desc">
+		<text>Логирование выбора ENEMY и переходов состояния (система NPC best_enemy): 
+ Консоль: изменения ENGINE / MEMORY / SWITCH / STATE 
+ Режим: RAW (все этапы определения врага) 
+ Режим: CLEAN (только изменения врага для каждого NPC) 
+ Область: best_enemy(), db.storage.enemy_id, резерв из памяти 
+ 
+ Режим CLEAN фильтрует повторные назначения врага и записывает только переходы 
+ STATE -&gt; NONE записывается, когда допустимый враг отсутствует</text>
+	</string>
+
+	<string id="ui_mcm_stealth_debug_tab_debug_danger">
+		<text>Отладка Danger ID</text>
+	</string>
+	<string id="ui_mcm_stealth_debug_tab_debug_danger_desc">
+		<text>Логирование определения состояния системы DANGER (NPC best_danger + назначение врага): 
+ Консоль: ENGINE danger / HIT memory / MEMORY scan / ASSIGN / REJECT 
+ Режим: RAW (все этапы обнаружения и оценки) 
+ Режим: CLEAN (только изменения назначенной опасности/цели врага для каждого NPC) 
+ Область: npc:best_danger(), memory_visible_objects, отслеживание попаданий, st.enemy_id 
+ 
+ Режим CLEAN записывает только смену цели опасности или её недействительность 
+ Состояния REJECT включают неверный класс, мёртвые объекты и невраждебные отношения 
+ События ASSIGN означают подтверждённую допустимую цель опасности, сохранённую в состоянии NPC</text>
+	</string>
+
+</string_table>

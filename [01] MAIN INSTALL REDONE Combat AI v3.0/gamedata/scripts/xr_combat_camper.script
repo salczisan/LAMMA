@@ -1,0 +1,205 @@
+--[[----------------------------------------------------------------------------------------------------------
+	XR COMBAT CAMPER
+------------------------------------------------------------------------------------------------------------]]
+local db = db
+local device = device
+local vector = vector
+local time_global = time_global
+local math_random = math.random
+-------------------------------
+local base = xr_evaluators_id.combat_camper_base
+local prop_enable = base + 0
+local prop_see    = base + 1
+
+base = xr_actions_id.combat_camper_base
+local act_shoot       = base + 0
+local act_look_around = base + 1
+
+--------------------------------------------------------------------------------------
+-- EVALUATOR COMBAT CAMPER
+--------------------------------------------------------------------------------------
+class "evaluator_combat_camper" (property_evaluator)
+
+function evaluator_combat_camper:__init(name,storage) super (nil,name)
+	self.st = storage
+end
+
+function evaluator_combat_camper:evaluate()
+	return db.storage[self.object:id()].script_combat_type == "camper"
+end
+
+--------------------------------------------------------------------------------------
+-- EVALUATOR SEE
+--------------------------------------------------------------------------------------
+class "evaluator_see" (property_evaluator)
+
+function evaluator_see:__init(name,storage) super (nil,name)
+	self.st = storage
+end
+
+function evaluator_see:evaluate()
+	if not self.object or not self.object:alive() then
+		return false
+	end
+
+	local be = redone_ai_combat.get_combat_enemy(self.object)
+	if not be or not be:alive() then
+		return false
+	end
+
+	if self.object:alive() and be and self.object:see(be) then
+		self.st.last_seen_pos = be:position()
+		return true
+	else
+		return false
+	end
+end
+
+--------------------------------------------------------------------------------------
+-- ACTION COMBAT CAMPER
+--------------------------------------------------------------------------------------
+class "action_shoot" (action_base)
+
+function action_shoot:__init(name,storage) super (nil,name)
+	self.st = storage
+end
+
+function action_shoot:initialize()
+	action_base.initialize(self)
+
+	state_mgr.set_state(self.object,"hide_fire",nil,nil,{look_object = self.object:best_enemy()})
+
+	self.st.camper_combat_action = true
+end
+
+--------------------------------------------------------------------------------------
+-- EXECUTE ACTION SHOOT
+--------------------------------------------------------------------------------------
+function action_shoot:execute()
+	action_base.execute(self)
+end
+
+function action_shoot:finalize()
+	action_base.finalize(self)
+
+	self.st.camper_combat_action = false
+end
+
+--------------------------------------------------------------------------------------
+-- ACTION LOOK AROUND
+--------------------------------------------------------------------------------------
+class "action_look_around" (action_base)
+
+function action_look_around:__init(name,storage) super (nil,name)
+	self.st = storage
+end
+
+function action_look_around:initialize()
+	action_base.initialize( self )
+
+	self.st.camper_combat_action = true
+	self:reset()
+end
+
+function action_look_around:reset()
+	local now = device():time_global()
+	self.forget_time = now + 30000
+	self.change_dir_time = now + 50000
+
+	local be = self.object:best_enemy()
+	if not self.st.last_seen_pos and be ~= nil then
+		self.st.last_seen_pos = be:position()
+	end
+
+	state_mgr.set_state(self.object,"hide",nil,nil,{look_position = self.st.last_seen_pos})
+end
+
+--------------------------------------------------------------------------------------
+-- EXECUTE LOOK AROUND
+--------------------------------------------------------------------------------------
+function action_look_around:execute()
+	action_base.execute(self)
+	local now = device():time_global()
+	if self.forget_time < now then
+		--printf("pl:Disabling_memory_object[8]")
+		--self.object:enable_memory_object( self.object:best_enemy(), false)
+		self.st.last_seen_pos = nil
+
+		return
+	end
+
+	if self.change_dir_time < now then
+		self.change_dir_time = now + math_random(3000,6000)
+
+		local ang = math_random(0,120) - 60
+		if self.st.last_seen_pos == nil then
+			abort("report this error to STALKER-829 bug [%s]", self.object:name())
+		end
+		local obj_pos = self.object:position()
+		local dir = vector():set(self.st.last_seen_pos):sub(obj_pos)
+		dir = vector_rotate_y(dir,ang)
+
+		state_mgr.set_state(self.object,"hide",nil,nil,{look_position = obj_pos:add(dir)})
+	end
+end
+
+function action_look_around:finalize()
+	action_base.finalize(self)
+	self.st.last_seen_pos = nil
+	self.st.camper_combat_action = false
+end
+
+function action_look_around:hit_callback(obj,amount,local_direction,who,bone_index)
+	if who == nil or not self.st.camper_combat_action then
+		return
+	end
+
+	local be = self.object and self.object:best_enemy()
+
+	if be and who:id() == be:id() then
+		--printf( "HIT CALLBACK!!!!!!!!!" )
+
+		self.st.last_seen_pos = be:position()
+		self:reset()
+	end
+end
+
+--------------------------------------------------------------------------------------
+-- BINDER COMBAT CAMPER
+--------------------------------------------------------------------------------------
+function add_to_binder(npc,ini,st,planner,temp)
+	if not npc or not planner then return end
+	local properties  = {}
+	properties["state_mgr_logic_active"] 	= xr_evaluators_id.state_mgr + 4
+
+	planner:add_evaluator(prop_enable,evaluator_combat_camper("combat_camper",st))
+	planner:add_evaluator(prop_see,evaluator_see("combat_camper_see",st))
+
+	local action = action_shoot("combat_camper_shoot",st)
+	if action then
+		action:add_precondition(world_property(stalker_ids.property_alive, true))
+		action:add_precondition(world_property(stalker_ids.property_enemy, true))
+		action:add_precondition(world_property(xr_evaluators_id.script_combat, true))
+		action:add_precondition(world_property(prop_enable, true))
+		action:add_precondition(world_property(prop_see, true))
+
+		action:add_effect (world_property(stalker_ids.property_enemy, false))
+		action:add_effect (world_property(properties["state_mgr_logic_active"], false))
+		planner:add_action(act_shoot, action)
+	end
+
+	action = action_look_around("combat_camper_look_around",st)
+	if action then
+		action:add_precondition(world_property(xr_evaluators_id.script_combat, true ))
+		action:add_precondition(world_property(prop_enable, true ))
+		action:add_precondition(world_property(prop_see, false))
+
+		action:add_effect (world_property(prop_see, true ))
+		action:add_effect (world_property(properties["state_mgr_logic_active"], false))
+		planner:add_action(act_look_around, action)
+
+		xr_logic.subscribe_action_for_events(npc, st, action)
+	end
+
+	st.camper_combat_action = false
+end

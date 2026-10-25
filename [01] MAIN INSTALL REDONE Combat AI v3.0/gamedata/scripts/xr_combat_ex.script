@@ -1,0 +1,114 @@
+--[[----------------------------------------------------------------------------------------------------------
+	overrides: XR COMBAT
+------------------------------------------------------------------------------------------------------------]]
+local db = db
+-------------------------------
+local function get_best_enemy(npc)
+	return redone_ai_combat.get_combat_enemy(npc)
+end
+
+function xr_combat.set_combat_type(npc, actor, t)
+	if t == nil then
+		return
+	end
+
+	local storage = db.storage[npc:id()]
+	local best_enemy = get_best_enemy(npc)
+	storage.enemy = best_enemy
+
+	local script_combat_type = nil
+	if t.combat_type ~= nil then
+		script_combat_type = xr_logic.pick_section_from_condlist(actor, npc, t.combat_type.condlist)
+		if script_combat_type == "nil" then
+			script_combat_type = nil
+		end
+	end
+
+	storage.script_combat_type = script_combat_type
+	t.script_combat_type = script_combat_type
+end
+
+-------------------------------------------------------------------------------------
+-- EVALUATOR CHECK COMBAT
+-- false - engine combat, true - script combat
+-------------------------------------------------------------------------------------
+function xr_combat.evaluator_check_combat:evaluate()
+	if not self.object:alive() then
+		return false
+	end
+
+	local st = self.st
+	if st.enabled and get_best_enemy(self.object) then
+		local actor = db.actor
+		if not actor then
+			return false
+		end
+
+		return st.script_combat_type ~= nil
+	end
+
+	return false
+end
+
+-------------------------------------------------------------------------------------
+-- EVALUATOR ENEMY
+-------------------------------------------------------------------------------------
+function xr_combat.evaluator_enemy:evaluate()
+	return get_best_enemy(self.object) ~= nil
+end
+
+--[[----------------------------------------------------------------------------------------------------------
+	RE:DONE COMBAT LOGIC
+
+	logic section -> on_combat = <section> -> [<section>] combat_type = ...
+	NPC logic without an explicit on_combat or combat_type automatically uses the shared RE:DONE combat section.
+	Explicit per-logic opt-out for rare special cases that must keep their original combat setup.
+	Example:redone_combat_logic = false
+------------------------------------------------------------------------------------------------------------]]
+local base_setup_generic_scheme = xr_combat.setup_generic_scheme
+local redone_combat_logic_ini = ini_file("scripts\\redone_combat_logic.ltx")
+
+local REDONE_COMBAT_SECTION = "re_combat"
+local REDONE_COMBAT_LOGIC_DEBUG = false
+
+if not redone_combat_logic_ini:section_exist(REDONE_COMBAT_SECTION) then
+	abort(
+		"RE:DONE Combat AI: missing [%s] in scripts\\redone_combat_logic.ltx",
+		REDONE_COMBAT_SECTION
+	)
+end
+
+function xr_combat.setup_generic_scheme(npc, ini, scheme, section, stype, temp)
+	-- Explicit opt-out for special logic sections.
+	if ini:r_bool_ex(section, "redone_combat_logic", true) == false then
+		if REDONE_COMBAT_LOGIC_DEBUG then
+			printf(
+				"[Combat AI][LOGIC] OPT-OUT npc=[%s] id=[%s] logic=[%s]",
+				npc:name(),
+				npc:id(),
+				tostring(section)
+			)
+		end
+
+		return base_setup_generic_scheme(npc, ini, scheme, section, stype, temp)
+	end
+
+	local has_on_combat = ini:line_exist(section, "on_combat")
+	local has_combat_type = ini:line_exist(section, "combat_type")
+
+	if character_community(npc) == "zombied" or has_on_combat or has_combat_type then
+		return base_setup_generic_scheme(npc, ini, scheme, section, stype, temp)
+	end
+
+	if REDONE_COMBAT_LOGIC_DEBUG then
+		printf(
+			"[Combat AI][LOGIC] APPLIED npc=[%s] id=[%s] logic=[%s] -> [%s]",
+			npc:name(),
+			npc:id(),
+			tostring(section),
+			REDONE_COMBAT_SECTION
+		)
+	end
+
+	return base_setup_generic_scheme(npc,redone_combat_logic_ini,scheme,REDONE_COMBAT_SECTION,stype,temp)
+end
